@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any, Optional, Union
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from transformers import Seq2SeqTrainer
 from typing_extensions import override
 
@@ -31,6 +32,7 @@ from ...extras.packages import is_transformers_version_greater_than
 from ..callbacks import SaveProcessorCallback
 from ..fp8_utils import configure_fp8_environment, verify_fp8_status
 from ..trainer_utils import create_custom_optimizer, create_custom_scheduler
+from .label_space import LABEL_COUNT, LEAF_LABEL_INDICES, PARENT_CHILD_EDGES
 
 
 if TYPE_CHECKING:
@@ -88,6 +90,16 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
 
             self.compute_loss_func = dft_loss_func
 
+        self._one_token_id: Optional[int] = None
+        self._warned_label_count = False
+        tokenizer = getattr(self, "processing_class", None)
+        if tokenizer is not None:
+            one_token_ids = tokenizer.encode("1", add_special_tokens=False)
+            if len(one_token_ids) == 1:
+                self._one_token_id = one_token_ids[0]
+            else:
+                logger.warning_rank0("Tokenizer encodes digit `1` into multiple tokens: %s", one_token_ids)
+
         # Verify FP8 status after trainer initialization (accelerator should be available)
         if model_args is not None and model_args.fp8 and hasattr(self, "accelerator"):
             verify_fp8_status(self.accelerator, model_args)
@@ -113,8 +125,202 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
         return super()._get_train_sampler(*args, **kwargs)
 
     @override
-    def compute_loss(self, model, inputs, *args, **kwargs):
-        return super().compute_loss(model, inputs, *args, **kwargs)
+    def compute_loss(self, model, inputs, return_outputs: bool = False, **kwargs):
+        bce_weight = getattr(self.finetuning_args, "classification_loss_weight", 0.0)
+        dice_weight = getattr(self.finetuning_args, "classification_dice_weight", 0.0)
+        hier_weight = getattr(self.finetuning_args, "classification_hier_weight", 0.0)
+        need_outputs = return_outputs or any(weight > 0 for weight in (bce_weight, dice_weight, hier_weight))
+
+        if not need_outputs:
+            return super().compute_loss(model, inputs, return_outputs=return_outputs, **kwargs)
+
+        loss, outputs = super().compute_loss(model, inputs, return_outputs=True, **kwargs)
+
+        if need_outputs:
+            cls_loss, components = self._compute_classification_loss(
+                outputs, inputs, bce_weight=bce_weight, dice_weight=dice_weight, hier_weight=hier_weight
+            )
+            if cls_loss is not None:
+                loss = loss + cls_loss
+                if isinstance(outputs, dict):
+                    outputs = dict(outputs)
+                    outputs.update({k: v.detach() for k, v in components.items()})
+                    outputs["loss"] = loss.detach()
+
+        if return_outputs:
+            return loss, outputs
+        return loss
+
+    def _compute_classification_loss(
+        self,
+        outputs: Any,
+        inputs: dict[str, torch.Tensor],
+        *,
+        bce_weight: float,
+        dice_weight: float,
+        hier_weight: float,
+    ) -> tuple[Optional[torch.Tensor], dict[str, torch.Tensor]]:
+        components: dict[str, torch.Tensor] = {}
+
+        if "labels" not in inputs:
+            return None, components
+
+        logits = self._get_logits(outputs)
+        tokenizer = getattr(self, "processing_class", None)
+        if logits is None or tokenizer is None or self._one_token_id is None:
+            return None, components
+
+        samples = self._gather_classification_tensors(inputs["labels"], logits, tokenizer)
+        if not samples:
+            return None, components
+
+        total_loss: torch.Tensor | None = None
+
+        if bce_weight > 0:
+            stacked_logits = torch.cat([item[0] for item in samples])
+            stacked_targets = torch.cat([item[1] for item in samples])
+            bce_loss = F.binary_cross_entropy_with_logits(stacked_logits, stacked_targets)
+            components["classification_bce_loss"] = bce_loss
+            total_loss = bce_weight * bce_loss
+
+        if dice_weight > 0:
+            dice_loss = self._compute_dice_loss(samples)
+            if dice_loss is not None:
+                components["classification_dice_loss"] = dice_loss
+                total_loss = dice_loss * dice_weight if total_loss is None else total_loss + dice_loss * dice_weight
+
+        if hier_weight > 0:
+            hier_loss = self._compute_hierarchical_loss(samples)
+            if hier_loss is not None:
+                components["classification_hier_loss"] = hier_loss
+                total_loss = hier_loss * hier_weight if total_loss is None else total_loss + hier_loss * hier_weight
+
+        return total_loss, components
+
+    def _extract_label_tokens(
+        self, sample_labels: torch.Tensor, tokenizer: "PreTrainedTokenizer"
+    ) -> tuple[list[int], list[int], list[int]]:
+        mask = sample_labels.ne(IGNORE_INDEX)
+        if not mask.any():
+            return [], [], []
+
+        valid_positions = mask.nonzero(as_tuple=False).view(-1)
+        valid_ids = sample_labels[valid_positions].tolist()
+        tokens = tokenizer.convert_ids_to_tokens(valid_ids)
+
+        positions: list[int] = []
+        targets: list[int] = []
+        label_indices: list[int] = []
+
+        for idx, token in enumerate(tokens):
+            digit = self._digit_from_token(token)
+            if digit is None:
+                continue
+
+            positions.append(valid_positions[idx].item())
+            targets.append(digit)
+            label_indices.append(len(targets) - 1)
+
+            if len(targets) == LABEL_COUNT:
+                break
+
+        if len(targets) != LABEL_COUNT and not self._warned_label_count:
+            self._warned_label_count = True
+            logger.warning_rank0(
+                "Expected %d label tokens but found %d. Classification loss may be misaligned.",
+                LABEL_COUNT,
+                len(targets),
+            )
+
+        return positions, targets, label_indices
+
+    @staticmethod
+    def _digit_from_token(token: str) -> Optional[int]:
+        if "0" in token and "1" in token:
+            return None
+        if "1" in token:
+            return 1
+        if "0" in token:
+            return 0
+        return None
+
+    def _gather_classification_tensors(
+        self, labels: torch.Tensor, logits: torch.Tensor, tokenizer: "PreTrainedTokenizer"
+    ) -> list[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
+        samples: list[tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = []
+
+        for batch_idx in range(labels.size(0)):
+            positions, targets, label_indices = self._extract_label_tokens(labels[batch_idx], tokenizer)
+            if not positions:
+                continue
+
+            sample_logits = logits[batch_idx, positions, self._one_token_id]
+            target_tensor = torch.tensor(targets, device=logits.device, dtype=logits.dtype)
+            index_tensor = torch.tensor(label_indices, device=logits.device, dtype=torch.long)
+            samples.append((sample_logits, target_tensor, index_tensor))
+
+        return samples
+
+    def _compute_dice_loss(
+        self, samples: list[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]
+    ) -> Optional[torch.Tensor]:
+        if not samples:
+            return None
+
+        leaf_indices = torch.tensor(LEAF_LABEL_INDICES, device=samples[0][0].device)
+        losses: list[torch.Tensor] = []
+
+        for logits, targets, indices in samples:
+            mask = (indices.unsqueeze(-1) == leaf_indices).any(dim=-1)
+            if not mask.any():
+                continue
+
+            probs = torch.sigmoid(logits[mask])
+            t = targets[mask]
+            loss = 1 - (2 * (probs * t).sum() + 1) / (probs.sum() + t.sum() + 1)
+            losses.append(loss)
+
+        if not losses:
+            return None
+
+        return torch.stack(losses).mean()
+
+    def _compute_hierarchical_loss(
+        self, samples: list[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]
+    ) -> Optional[torch.Tensor]:
+        if not samples:
+            return None
+
+        edges = PARENT_CHILD_EDGES
+        all_edges: list[torch.Tensor] = []
+
+        for logits, _, indices in samples:
+            probs = torch.full((LABEL_COUNT,), float("nan"), device=logits.device, dtype=logits.dtype)
+            probs[indices] = torch.sigmoid(logits)
+
+            penalties: list[torch.Tensor] = []
+            for parent, child in edges:
+                parent_prob = probs[parent]
+                child_prob = probs[child]
+                if torch.isnan(parent_prob) or torch.isnan(child_prob):
+                    continue
+                penalties.append(torch.clamp_min(child_prob - parent_prob, 0.0))
+
+            if penalties:
+                all_edges.append(torch.stack(penalties).sum())
+
+        if not all_edges:
+            return None
+
+        return torch.stack(all_edges).mean()
+
+    @staticmethod
+    def _get_logits(outputs: Any) -> Optional[torch.Tensor]:
+        if outputs is None:
+            return None
+        if isinstance(outputs, dict):
+            return outputs.get("logits")
+        return getattr(outputs, "logits", None)
 
     @override
     def prediction_step(

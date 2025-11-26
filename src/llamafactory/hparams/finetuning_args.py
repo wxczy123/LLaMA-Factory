@@ -506,6 +506,33 @@ class FinetuningArguments(
         default=False,
         metadata={"help": "Whether or not to compute the token-level accuracy at evaluation."},
     )
+    classification_loss_weight: float = field(
+        default=0.0,
+        metadata={
+            "help": (
+                "Weight applied to the auxiliary BCEWithLogits classification loss derived from "
+                "the numeric label tokens in the SFT outputs. Set to 0.0 to disable."
+            )
+        },
+    )
+    classification_dice_weight: float = field(
+        default=0.0,
+        metadata={
+            "help": (
+                "Weight applied to the auxiliary Dice loss computed over the leaf labels in the "
+                "hierarchical classification outputs. Set to 0.0 to disable."
+            )
+        },
+    )
+    classification_hier_weight: float = field(
+        default=0.0,
+        metadata={
+            "help": (
+                "Weight applied to the hierarchical consistency loss encouraging parent labels to "
+                "be at least as confident as their children. Set to 0.0 to disable."
+            )
+        },
+    )
     disable_shuffling: bool = field(
         default=False,
         metadata={"help": "Whether or not to disable the shuffling of the training set."},

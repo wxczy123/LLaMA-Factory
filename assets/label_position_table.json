@@ -1,0 +1,366 @@
+[
+  {
+    "index": 1,
+    "path": "Reviews"
+  },
+  {
+    "index": 2,
+    "path": "Reviews > Modern reviews"
+  },
+  {
+    "index": 3,
+    "path": "Reviews > Specialized reviews"
+  },
+  {
+    "index": 4,
+    "path": "Reviews > Datasets"
+  },
+  {
+    "index": 5,
+    "path": "Classification"
+  },
+  {
+    "index": 6,
+    "path": "Classification > Parameterized classifiers"
+  },
+  {
+    "index": 7,
+    "path": "Classification > Representations"
+  },
+  {
+    "index": 8,
+    "path": "Classification > Representations > Jet images"
+  },
+  {
+    "index": 9,
+    "path": "Classification > Representations > Event images"
+  },
+  {
+    "index": 10,
+    "path": "Classification > Representations > Sequences"
+  },
+  {
+    "index": 11,
+    "path": "Classification > Representations > Trees"
+  },
+  {
+    "index": 12,
+    "path": "Classification > Representations > Graphs"
+  },
+  {
+    "index": 13,
+    "path": "Classification > Representations > Sets (point clouds)"
+  },
+  {
+    "index": 14,
+    "path": "Classification > Representations > Physics-inspired basis"
+  },
+  {
+    "index": 15,
+    "path": "Classification > Targets"
+  },
+  {
+    "index": 16,
+    "path": "Classification > Targets > $W/Z$ tagging"
+  },
+  {
+    "index": 17,
+    "path": "Classification > Targets > $H\\rightarrow b\\bar{b}$"
+  },
+  {
+    "index": 18,
+    "path": "Classification > Targets > quarks and gluons"
+  },
+  {
+    "index": 19,
+    "path": "Classification > Targets > top quark tagging"
+  },
+  {
+    "index": 20,
+    "path": "Classification > Targets > strange jets"
+  },
+  {
+    "index": 21,
+    "path": "Classification > Targets > $b$-tagging"
+  },
+  {
+    "index": 22,
+    "path": "Classification > Targets > Flavor physics"
+  },
+  {
+    "index": 23,
+    "path": "Classification > Targets > BSM particles and models"
+  },
+  {
+    "index": 24,
+    "path": "Classification > Targets > Particle identification"
+  },
+  {
+    "index": 25,
+    "path": "Classification > Targets > Neutrino Detectors"
+  },
+  {
+    "index": 26,
+    "path": "Classification > Targets > Direct Dark Matter Detectors"
+  },
+  {
+    "index": 27,
+    "path": "Classification > Targets > Cosmology, Astro Particle, and Cosmic Ray physics"
+  },
+  {
+    "index": 28,
+    "path": "Classification > Targets > Tracking"
+  },
+  {
+    "index": 29,
+    "path": "Classification > Targets > Heavy Ions / Nuclear Physics"
+  },
+  {
+    "index": 30,
+    "path": "Classification > Learning strategies"
+  },
+  {
+    "index": 31,
+    "path": "Classification > Learning strategies > Hyperparameters"
+  },
+  {
+    "index": 32,
+    "path": "Classification > Learning strategies > Weak/Semi supervision"
+  },
+  {
+    "index": 33,
+    "path": "Classification > Learning strategies > Unsupervised"
+  },
+  {
+    "index": 34,
+    "path": "Classification > Learning strategies > Reinforcement Learning"
+  },
+  {
+    "index": 35,
+    "path": "Classification > Learning strategies > Quantum Machine Learning"
+  },
+  {
+    "index": 36,
+    "path": "Classification > Learning strategies > Feature ranking"
+  },
+  {
+    "index": 37,
+    "path": "Classification > Learning strategies > Attention"
+  },
+  {
+    "index": 38,
+    "path": "Classification > Learning strategies > Regularization"
+  },
+  {
+    "index": 39,
+    "path": "Classification > Learning strategies > Optimal Transport"
+  },
+  {
+    "index": 40,
+    "path": "Classification > Fast inference / deployment"
+  },
+  {
+    "index": 41,
+    "path": "Classification > Fast inference / deployment > Software"
+  },
+  {
+    "index": 42,
+    "path": "Classification > Fast inference / deployment > Hardware/firmware"
+  },
+  {
+    "index": 43,
+    "path": "Classification > Fast inference / deployment > Deployment"
+  },
+  {
+    "index": 44,
+    "path": "Regression"
+  },
+  {
+    "index": 45,
+    "path": "Regression > Pileup"
+  },
+  {
+    "index": 46,
+    "path": "Regression > Calibration"
+  },
+  {
+    "index": 47,
+    "path": "Regression > Recasting"
+  },
+  {
+    "index": 48,
+    "path": "Regression > Matrix elements"
+  },
+  {
+    "index": 49,
+    "path": "Regression > Parameter estimation"
+  },
+  {
+    "index": 50,
+    "path": "Regression > Parton Distribution Functions (and related)"
+  },
+  {
+    "index": 51,
+    "path": "Regression > Lattice Gauge Theory"
+  },
+  {
+    "index": 52,
+    "path": "Regression > Function Approximation"
+  },
+  {
+    "index": 53,
+    "path": "Regression > Symbolic Regression"
+  },
+  {
+    "index": 54,
+    "path": "Regression > Monitoring"
+  },
+  {
+    "index": 55,
+    "path": "Equivariant networks."
+  },
+  {
+    "index": 56,
+    "path": "Physics-informed neural networks (PINNs) / Neural Operators."
+  },
+  {
+    "index": 57,
+    "path": "Decorrelation methods."
+  },
+  {
+    "index": 58,
+    "path": "Generative models / density estimation"
+  },
+  {
+    "index": 59,
+    "path": "Generative models / density estimation > GANs"
+  },
+  {
+    "index": 60,
+    "path": "Generative models / density estimation > (Variational) Autoencoders"
+  },
+  {
+    "index": 61,
+    "path": "Generative models / density estimation > (Continuous) Normalizing flows"
+  },
+  {
+    "index": 62,
+    "path": "Generative models / density estimation > Diffusion Models"
+  },
+  {
+    "index": 63,
+    "path": "Generative models / density estimation > Transformer Models"
+  },
+  {
+    "index": 64,
+    "path": "Generative models / density estimation > Physics-inspired"
+  },
+  {
+    "index": 65,
+    "path": "Generative models / density estimation > Mixture Models"
+  },
+  {
+    "index": 66,
+    "path": "Generative models / density estimation > Phase space generation"
+  },
+  {
+    "index": 67,
+    "path": "Generative models / density estimation > Gaussian processes"
+  },
+  {
+    "index": 68,
+    "path": "Generative models / density estimation > Evaluation of Generative Models"
+  },
+  {
+    "index": 69,
+    "path": "Generative models / density estimation > Other/hybrid"
+  },
+  {
+    "index": 70,
+    "path": "Anomaly detection."
+  },
+  {
+    "index": 71,
+    "path": "Foundation Models, LLMs."
+  },
+  {
+    "index": 72,
+    "path": "Kolmogorov-Arnold Networks (KANs)."
+  },
+  {
+    "index": 73,
+    "path": "Simulation-based (likelihood-free) Inference"
+  },
+  {
+    "index": 74,
+    "path": "Simulation-based (likelihood-free) Inference > Parameter estimation"
+  },
+  {
+    "index": 75,
+    "path": "Simulation-based (likelihood-free) Inference > Unfolding"
+  },
+  {
+    "index": 76,
+    "path": "Simulation-based (likelihood-free) Inference > Domain adaptation"
+  },
+  {
+    "index": 77,
+    "path": "Simulation-based (likelihood-free) Inference > BSM"
+  },
+  {
+    "index": 78,
+    "path": "Simulation-based (likelihood-free) Inference > Differentiable Simulation"
+  },
+  {
+    "index": 79,
+    "path": "Uncertainty Quantification"
+  },
+  {
+    "index": 80,
+    "path": "Uncertainty Quantification > Interpretability"
+  },
+  {
+    "index": 81,
+    "path": "Uncertainty Quantification > Estimation"
+  },
+  {
+    "index": 82,
+    "path": "Uncertainty Quantification > Mitigation"
+  },
+  {
+    "index": 83,
+    "path": "Uncertainty Quantification > Uncertainty- and inference-aware learning"
+  },
+  {
+    "index": 84,
+    "path": "Formal Theory and ML"
+  },
+  {
+    "index": 85,
+    "path": "Formal Theory and ML > Theory and physics for ML"
+  },
+  {
+    "index": 86,
+    "path": "Formal Theory and ML > ML for theory"
+  },
+  {
+    "index": 87,
+    "path": "Experimental results."
+  },
+  {
+    "index": 88,
+    "path": "Experimental results. > Performance studies"
+  },
+  {
+    "index": 89,
+    "path": "Experimental results. > Searches and measurements where ML reconstruction is a core component"
+  },
+  {
+    "index": 90,
+    "path": "Experimental results. > Final analysis discriminate for searches"
+  },
+  {
+    "index": 91,
+    "path": "Experimental results. > Measurements using deep learning directly (not through object reconstruction)"
+  }
+]
