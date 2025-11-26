@@ -1,366 +1,457 @@
 [
   {
     "index": 1,
-    "path": "Reviews"
+    "path": "Reviews",
+    "digit_position": 3
   },
   {
     "index": 2,
-    "path": "Reviews > Modern reviews"
+    "path": "Reviews > Modern reviews",
+    "digit_position": 6
   },
   {
     "index": 3,
-    "path": "Reviews > Specialized reviews"
+    "path": "Reviews > Specialized reviews",
+    "digit_position": 8
   },
   {
     "index": 4,
-    "path": "Reviews > Datasets"
+    "path": "Reviews > Datasets",
+    "digit_position": 10
   },
   {
     "index": 5,
-    "path": "Classification"
+    "path": "Classification",
+    "digit_position": 15
   },
   {
     "index": 6,
-    "path": "Classification > Parameterized classifiers"
+    "path": "Classification > Parameterized classifiers",
+    "digit_position": 18
   },
   {
     "index": 7,
-    "path": "Classification > Representations"
+    "path": "Classification > Representations",
+    "digit_position": 21
   },
   {
     "index": 8,
-    "path": "Classification > Representations > Jet images"
+    "path": "Classification > Representations > Jet images",
+    "digit_position": 24
   },
   {
     "index": 9,
-    "path": "Classification > Representations > Event images"
+    "path": "Classification > Representations > Event images",
+    "digit_position": 26
   },
   {
     "index": 10,
-    "path": "Classification > Representations > Sequences"
+    "path": "Classification > Representations > Sequences",
+    "digit_position": 28
   },
   {
     "index": 11,
-    "path": "Classification > Representations > Trees"
+    "path": "Classification > Representations > Trees",
+    "digit_position": 30
   },
   {
     "index": 12,
-    "path": "Classification > Representations > Graphs"
+    "path": "Classification > Representations > Graphs",
+    "digit_position": 32
   },
   {
     "index": 13,
-    "path": "Classification > Representations > Sets (point clouds)"
+    "path": "Classification > Representations > Sets (point clouds)",
+    "digit_position": 34
   },
   {
     "index": 14,
-    "path": "Classification > Representations > Physics-inspired basis"
+    "path": "Classification > Representations > Physics-inspired basis",
+    "digit_position": 36
   },
   {
     "index": 15,
-    "path": "Classification > Targets"
+    "path": "Classification > Targets",
+    "digit_position": 41
   },
   {
     "index": 16,
-    "path": "Classification > Targets > $W/Z$ tagging"
+    "path": "Classification > Targets > $W/Z$ tagging",
+    "digit_position": 44
   },
   {
     "index": 17,
-    "path": "Classification > Targets > $H\\rightarrow b\\bar{b}$"
+    "path": "Classification > Targets > $H\\rightarrow b\\bar{b}$",
+    "digit_position": 46
   },
   {
     "index": 18,
-    "path": "Classification > Targets > quarks and gluons"
+    "path": "Classification > Targets > quarks and gluons",
+    "digit_position": 48
   },
   {
     "index": 19,
-    "path": "Classification > Targets > top quark tagging"
+    "path": "Classification > Targets > top quark tagging",
+    "digit_position": 50
   },
   {
     "index": 20,
-    "path": "Classification > Targets > strange jets"
+    "path": "Classification > Targets > strange jets",
+    "digit_position": 52
   },
   {
     "index": 21,
-    "path": "Classification > Targets > $b$-tagging"
+    "path": "Classification > Targets > $b$-tagging",
+    "digit_position": 54
   },
   {
     "index": 22,
-    "path": "Classification > Targets > Flavor physics"
+    "path": "Classification > Targets > Flavor physics",
+    "digit_position": 56
   },
   {
     "index": 23,
-    "path": "Classification > Targets > BSM particles and models"
+    "path": "Classification > Targets > BSM particles and models",
+    "digit_position": 58
   },
   {
     "index": 24,
-    "path": "Classification > Targets > Particle identification"
+    "path": "Classification > Targets > Particle identification",
+    "digit_position": 60
   },
   {
     "index": 25,
-    "path": "Classification > Targets > Neutrino Detectors"
+    "path": "Classification > Targets > Neutrino Detectors",
+    "digit_position": 62
   },
   {
     "index": 26,
-    "path": "Classification > Targets > Direct Dark Matter Detectors"
+    "path": "Classification > Targets > Direct Dark Matter Detectors",
+    "digit_position": 64
   },
   {
     "index": 27,
-    "path": "Classification > Targets > Cosmology, Astro Particle, and Cosmic Ray physics"
+    "path": "Classification > Targets > Cosmology, Astro Particle, and Cosmic Ray physics",
+    "digit_position": 66
   },
   {
     "index": 28,
-    "path": "Classification > Targets > Tracking"
+    "path": "Classification > Targets > Tracking",
+    "digit_position": 68
   },
   {
     "index": 29,
-    "path": "Classification > Targets > Heavy Ions / Nuclear Physics"
+    "path": "Classification > Targets > Heavy Ions / Nuclear Physics",
+    "digit_position": 70
   },
   {
     "index": 30,
-    "path": "Classification > Learning strategies"
+    "path": "Classification > Learning strategies",
+    "digit_position": 75
   },
   {
     "index": 31,
-    "path": "Classification > Learning strategies > Hyperparameters"
+    "path": "Classification > Learning strategies > Hyperparameters",
+    "digit_position": 78
   },
   {
     "index": 32,
-    "path": "Classification > Learning strategies > Weak/Semi supervision"
+    "path": "Classification > Learning strategies > Weak/Semi supervision",
+    "digit_position": 80
   },
   {
     "index": 33,
-    "path": "Classification > Learning strategies > Unsupervised"
+    "path": "Classification > Learning strategies > Unsupervised",
+    "digit_position": 82
   },
   {
     "index": 34,
-    "path": "Classification > Learning strategies > Reinforcement Learning"
+    "path": "Classification > Learning strategies > Reinforcement Learning",
+    "digit_position": 84
   },
   {
     "index": 35,
-    "path": "Classification > Learning strategies > Quantum Machine Learning"
+    "path": "Classification > Learning strategies > Quantum Machine Learning",
+    "digit_position": 86
   },
   {
     "index": 36,
-    "path": "Classification > Learning strategies > Feature ranking"
+    "path": "Classification > Learning strategies > Feature ranking",
+    "digit_position": 88
   },
   {
     "index": 37,
-    "path": "Classification > Learning strategies > Attention"
+    "path": "Classification > Learning strategies > Attention",
+    "digit_position": 90
   },
   {
     "index": 38,
-    "path": "Classification > Learning strategies > Regularization"
+    "path": "Classification > Learning strategies > Regularization",
+    "digit_position": 92
   },
   {
     "index": 39,
-    "path": "Classification > Learning strategies > Optimal Transport"
+    "path": "Classification > Learning strategies > Optimal Transport",
+    "digit_position": 94
   },
   {
     "index": 40,
-    "path": "Classification > Fast inference / deployment"
+    "path": "Classification > Fast inference / deployment",
+    "digit_position": 99
   },
   {
     "index": 41,
-    "path": "Classification > Fast inference / deployment > Software"
+    "path": "Classification > Fast inference / deployment > Software",
+    "digit_position": 102
   },
   {
     "index": 42,
-    "path": "Classification > Fast inference / deployment > Hardware/firmware"
+    "path": "Classification > Fast inference / deployment > Hardware/firmware",
+    "digit_position": 104
   },
   {
     "index": 43,
-    "path": "Classification > Fast inference / deployment > Deployment"
+    "path": "Classification > Fast inference / deployment > Deployment",
+    "digit_position": 106
   },
   {
     "index": 44,
-    "path": "Regression"
+    "path": "Regression",
+    "digit_position": 113
   },
   {
     "index": 45,
-    "path": "Regression > Pileup"
+    "path": "Regression > Pileup",
+    "digit_position": 116
   },
   {
     "index": 46,
-    "path": "Regression > Calibration"
+    "path": "Regression > Calibration",
+    "digit_position": 118
   },
   {
     "index": 47,
-    "path": "Regression > Recasting"
+    "path": "Regression > Recasting",
+    "digit_position": 120
   },
   {
     "index": 48,
-    "path": "Regression > Matrix elements"
+    "path": "Regression > Matrix elements",
+    "digit_position": 122
   },
   {
     "index": 49,
-    "path": "Regression > Parameter estimation"
+    "path": "Regression > Parameter estimation",
+    "digit_position": 124
   },
   {
     "index": 50,
-    "path": "Regression > Parton Distribution Functions (and related)"
+    "path": "Regression > Parton Distribution Functions (and related)",
+    "digit_position": 126
   },
   {
     "index": 51,
-    "path": "Regression > Lattice Gauge Theory"
+    "path": "Regression > Lattice Gauge Theory",
+    "digit_position": 128
   },
   {
     "index": 52,
-    "path": "Regression > Function Approximation"
+    "path": "Regression > Function Approximation",
+    "digit_position": 130
   },
   {
     "index": 53,
-    "path": "Regression > Symbolic Regression"
+    "path": "Regression > Symbolic Regression",
+    "digit_position": 132
   },
   {
     "index": 54,
-    "path": "Regression > Monitoring"
+    "path": "Regression > Monitoring",
+    "digit_position": 134
   },
   {
     "index": 55,
-    "path": "Equivariant networks."
+    "path": "Equivariant networks.",
+    "digit_position": 138
   },
   {
     "index": 56,
-    "path": "Physics-informed neural networks (PINNs) / Neural Operators."
+    "path": "Physics-informed neural networks (PINNs) / Neural Operators.",
+    "digit_position": 140
   },
   {
     "index": 57,
-    "path": "Decorrelation methods."
+    "path": "Decorrelation methods.",
+    "digit_position": 142
   },
   {
     "index": 58,
-    "path": "Generative models / density estimation"
+    "path": "Generative models / density estimation",
+    "digit_position": 145
   },
   {
     "index": 59,
-    "path": "Generative models / density estimation > GANs"
+    "path": "Generative models / density estimation > GANs",
+    "digit_position": 148
   },
   {
     "index": 60,
-    "path": "Generative models / density estimation > (Variational) Autoencoders"
+    "path": "Generative models / density estimation > (Variational) Autoencoders",
+    "digit_position": 150
   },
   {
     "index": 61,
-    "path": "Generative models / density estimation > (Continuous) Normalizing flows"
+    "path": "Generative models / density estimation > (Continuous) Normalizing flows",
+    "digit_position": 152
   },
   {
     "index": 62,
-    "path": "Generative models / density estimation > Diffusion Models"
+    "path": "Generative models / density estimation > Diffusion Models",
+    "digit_position": 154
   },
   {
     "index": 63,
-    "path": "Generative models / density estimation > Transformer Models"
+    "path": "Generative models / density estimation > Transformer Models",
+    "digit_position": 156
   },
   {
     "index": 64,
-    "path": "Generative models / density estimation > Physics-inspired"
+    "path": "Generative models / density estimation > Physics-inspired",
+    "digit_position": 158
   },
   {
     "index": 65,
-    "path": "Generative models / density estimation > Mixture Models"
+    "path": "Generative models / density estimation > Mixture Models",
+    "digit_position": 160
   },
   {
     "index": 66,
-    "path": "Generative models / density estimation > Phase space generation"
+    "path": "Generative models / density estimation > Phase space generation",
+    "digit_position": 162
   },
   {
     "index": 67,
-    "path": "Generative models / density estimation > Gaussian processes"
+    "path": "Generative models / density estimation > Gaussian processes",
+    "digit_position": 164
   },
   {
     "index": 68,
-    "path": "Generative models / density estimation > Evaluation of Generative Models"
+    "path": "Generative models / density estimation > Evaluation of Generative Models",
+    "digit_position": 166
   },
   {
     "index": 69,
-    "path": "Generative models / density estimation > Other/hybrid"
+    "path": "Generative models / density estimation > Other/hybrid",
+    "digit_position": 168
   },
   {
     "index": 70,
-    "path": "Anomaly detection."
+    "path": "Anomaly detection.",
+    "digit_position": 172
   },
   {
     "index": 71,
-    "path": "Foundation Models, LLMs."
+    "path": "Foundation Models, LLMs.",
+    "digit_position": 174
   },
   {
     "index": 72,
-    "path": "Kolmogorov-Arnold Networks (KANs)."
+    "path": "Kolmogorov-Arnold Networks (KANs).",
+    "digit_position": 176
   },
   {
     "index": 73,
-    "path": "Simulation-based (likelihood-free) Inference"
+    "path": "Simulation-based (likelihood-free) Inference",
+    "digit_position": 179
   },
   {
     "index": 74,
-    "path": "Simulation-based (likelihood-free) Inference > Parameter estimation"
+    "path": "Simulation-based (likelihood-free) Inference > Parameter estimation",
+    "digit_position": 182
   },
   {
     "index": 75,
-    "path": "Simulation-based (likelihood-free) Inference > Unfolding"
+    "path": "Simulation-based (likelihood-free) Inference > Unfolding",
+    "digit_position": 184
   },
   {
     "index": 76,
-    "path": "Simulation-based (likelihood-free) Inference > Domain adaptation"
+    "path": "Simulation-based (likelihood-free) Inference > Domain adaptation",
+    "digit_position": 186
   },
   {
     "index": 77,
-    "path": "Simulation-based (likelihood-free) Inference > BSM"
+    "path": "Simulation-based (likelihood-free) Inference > BSM",
+    "digit_position": 188
   },
   {
     "index": 78,
-    "path": "Simulation-based (likelihood-free) Inference > Differentiable Simulation"
+    "path": "Simulation-based (likelihood-free) Inference > Differentiable Simulation",
+    "digit_position": 190
   },
   {
     "index": 79,
-    "path": "Uncertainty Quantification"
+    "path": "Uncertainty Quantification",
+    "digit_position": 195
   },
   {
     "index": 80,
-    "path": "Uncertainty Quantification > Interpretability"
+    "path": "Uncertainty Quantification > Interpretability",
+    "digit_position": 198
   },
   {
     "index": 81,
-    "path": "Uncertainty Quantification > Estimation"
+    "path": "Uncertainty Quantification > Estimation",
+    "digit_position": 200
   },
   {
     "index": 82,
-    "path": "Uncertainty Quantification > Mitigation"
+    "path": "Uncertainty Quantification > Mitigation",
+    "digit_position": 202
   },
   {
     "index": 83,
-    "path": "Uncertainty Quantification > Uncertainty- and inference-aware learning"
+    "path": "Uncertainty Quantification > Uncertainty- and inference-aware learning",
+    "digit_position": 204
   },
   {
     "index": 84,
-    "path": "Formal Theory and ML"
+    "path": "Formal Theory and ML",
+    "digit_position": 209
   },
   {
     "index": 85,
-    "path": "Formal Theory and ML > Theory and physics for ML"
+    "path": "Formal Theory and ML > Theory and physics for ML",
+    "digit_position": 212
   },
   {
     "index": 86,
-    "path": "Formal Theory and ML > ML for theory"
+    "path": "Formal Theory and ML > ML for theory",
+    "digit_position": 214
   },
   {
     "index": 87,
-    "path": "Experimental results."
+    "path": "Experimental results.",
+    "digit_position": 219
   },
   {
     "index": 88,
-    "path": "Experimental results. > Performance studies"
+    "path": "Experimental results. > Performance studies",
+    "digit_position": 222
   },
   {
     "index": 89,
-    "path": "Experimental results. > Searches and measurements where ML reconstruction is a core component"
+    "path": "Experimental results. > Searches and measurements where ML reconstruction is a core component",
+    "digit_position": 224
   },
   {
     "index": 90,
-    "path": "Experimental results. > Final analysis discriminate for searches"
+    "path": "Experimental results. > Final analysis discriminate for searches",
+    "digit_position": 226
   },
   {
     "index": 91,
-    "path": "Experimental results. > Measurements using deep learning directly (not through object reconstruction)"
+    "path": "Experimental results. > Measurements using deep learning directly (not through object reconstruction)",
+    "digit_position": 228
   }
 ]

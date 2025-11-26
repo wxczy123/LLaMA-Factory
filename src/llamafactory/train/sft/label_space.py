@@ -248,8 +248,20 @@ _PATH_TUPLES, LEAF_LABEL_INDICES, PARENT_CHILD_EDGES = _label_metadata(LABEL_SPA
 LABEL_PATHS: list[str] = [" > ".join(path) for path in _PATH_TUPLES]
 LABEL_COUNT: int = len(LABEL_PATHS)
 
+# 1-based positions of the numeric tokens inside the rendered output string. The
+# positions are computed with a synthetic all-ones output since the location of
+# each digit does not depend on the underlying label value.
+_NUMERIC_RENDER = build_label_output([1] * LABEL_COUNT, LABEL_SPACE)
+LABEL_DIGIT_POSITIONS: list[int] = [idx for idx, ch in enumerate(_NUMERIC_RENDER, 1) if ch.isdigit()]
+
+if len(LABEL_DIGIT_POSITIONS) != LABEL_COUNT:
+    raise ValueError(
+        f"Expected {LABEL_COUNT} digits in the rendered label output, found {len(LABEL_DIGIT_POSITIONS)}"
+    )
+
 # 1-based position table for quick reference when reading model outputs.
 LABEL_POSITION_TABLE: list[dict[str, object]] = [
-    {"index": idx + 1, "path": path} for idx, path in enumerate(LABEL_PATHS)
+    {"index": idx + 1, "path": path, "digit_position": LABEL_DIGIT_POSITIONS[idx]}
+    for idx, path in enumerate(LABEL_PATHS)
 ]
 
