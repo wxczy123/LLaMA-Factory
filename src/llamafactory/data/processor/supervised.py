@@ -160,15 +160,15 @@ class SupervisedDatasetProcessor(DatasetProcessor):
             raise ValueError("<yes>/<no> tokens must be added to the tokenizer before preprocessing.")
 
         model_inputs = defaultdict(list)
-        pattern = re.compile(r"\{([^{}]+)\}\s*(<yes>|<no>)")
+        pattern = re.compile(r"(\{[^{}]+\})\s*(<yes>|<no>)")
         for i in range(len(examples.get("_prompt", []))):
             self._ml_stats["total"] += 1
             instruction = (examples.get("_ml_instruction", [""])[i] or "").strip()
             query = (examples.get("_ml_input", [""])[i] or "").strip()
             output = (examples.get("_ml_output", [""])[i] or "").strip()
 
-            full_text = f"{instruction}\n\n{query}\n\n{output}"
             prompt_text = f"{instruction}\n\n{query}\n\n"
+            full_text = f"{prompt_text}{output}"
 
             parsed = pattern.findall(output)
             if len(parsed) != self._num_labels:
@@ -179,6 +179,7 @@ class SupervisedDatasetProcessor(DatasetProcessor):
                 continue
 
             parsed_labels, parsed_tags = zip(*parsed)
+            parsed_labels = [lbl.strip() for lbl in parsed_labels]
             if list(parsed_labels) != self._label_list:
                 logger.warning_rank0(
                     f"Skipped example {i} due to label order mismatch with global label list."
@@ -188,9 +189,12 @@ class SupervisedDatasetProcessor(DatasetProcessor):
 
             binary_targets = [1.0 if tag == "<yes>" else 0.0 for tag in parsed_tags]
 
-            tokenized = self.tokenizer(full_text, add_special_tokens=False)
-            input_ids = tokenized["input_ids"]
-            label_positions = [idx for idx, tid in enumerate(input_ids) if tid in (yes_id, no_id)]
+            prompt_ids = self.tokenizer(prompt_text, add_special_tokens=False)["input_ids"]
+            output_ids = self.tokenizer(output, add_special_tokens=False)["input_ids"]
+            input_ids = prompt_ids + output_ids
+            label_positions = [
+                len(prompt_ids) + idx for idx, tid in enumerate(output_ids) if tid in (yes_id, no_id)
+            ]
 
             if len(label_positions) != self._num_labels:
                 logger.warning_rank0(
