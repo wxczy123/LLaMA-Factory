@@ -72,7 +72,7 @@ def run_sft(
 
     # Metric utils
     metric_module = {}
-    if finetuning_args.task_type == "multi_label_sft_logits":
+    if getattr(data_args, "task_type", None) == "multi_label_sft_logits":
         metric_module["compute_metrics"] = ComputeMultiLabelMetrics()
     elif training_args.predict_with_generate:
         metric_module["compute_metrics"] = ComputeSimilarity(tokenizer=tokenizer)

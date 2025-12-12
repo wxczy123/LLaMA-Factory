@@ -97,10 +97,7 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
             verify_fp8_status(self.accelerator, model_args)
 
         self.data_args = data_args
-        self._is_multi_label_task = (
-            getattr(finetuning_args, "task_type", None) == "multi_label_sft_logits"
-            or getattr(data_args, "task_type", None) == "multi_label_sft_logits"
-        )
+        self._is_multi_label_task = getattr(data_args, "task_type", None) == "multi_label_sft_logits"
         self._label_list: Optional[list[str]] = None
         self._parent_child_pairs: Optional[list[tuple[int, int]]] = None
         self._pos_weight: Optional[torch.Tensor] = None

@@ -506,10 +506,6 @@ class FinetuningArguments(
         default=False,
         metadata={"help": "Whether or not to compute the token-level accuracy at evaluation."},
     )
-    task_type: Optional[str] = field(
-        default=None,
-        metadata={"help": "Optional task type hint for specialized training objectives."},
-    )
     use_bce_loss: bool = field(
         default=True,
         metadata={"help": "Enable BCE loss for multi-label SFT with logits."},
