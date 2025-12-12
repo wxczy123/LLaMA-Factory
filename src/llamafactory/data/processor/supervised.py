@@ -36,6 +36,7 @@ class SupervisedDatasetProcessor(DatasetProcessor):
     def __post_init__(self):
         self._label_list = None
         self._num_labels = None
+        self._ml_stats = None
 
     def _load_label_space(self):
         if self._label_list is not None:
@@ -150,6 +151,9 @@ class SupervisedDatasetProcessor(DatasetProcessor):
     def _preprocess_multi_label_dataset(self, examples: dict[str, list[Any]]) -> dict[str, list[Any]]:
         self._load_label_space()
 
+        if self._ml_stats is None:
+            self._ml_stats = defaultdict(int)
+
         yes_id = self.tokenizer.convert_tokens_to_ids("<yes>")
         no_id = self.tokenizer.convert_tokens_to_ids("<no>")
         if yes_id == self.tokenizer.unk_token_id or no_id == self.tokenizer.unk_token_id:
@@ -158,6 +162,7 @@ class SupervisedDatasetProcessor(DatasetProcessor):
         model_inputs = defaultdict(list)
         pattern = re.compile(r"\{([^{}]+)\}\s*(<yes>|<no>)")
         for i in range(len(examples.get("_prompt", []))):
+            self._ml_stats["total"] += 1
             instruction = (examples.get("_ml_instruction", [""])[i] or "").strip()
             query = (examples.get("_ml_input", [""])[i] or "").strip()
             output = (examples.get("_ml_output", [""])[i] or "").strip()
@@ -170,6 +175,7 @@ class SupervisedDatasetProcessor(DatasetProcessor):
                 logger.warning_rank0(
                     f"Skipped example {i} due to mismatched parsed label count: {len(parsed)} vs {self._num_labels}."
                 )
+                self._ml_stats["parsed_mismatch"] += 1
                 continue
 
             parsed_labels, parsed_tags = zip(*parsed)
@@ -177,6 +183,7 @@ class SupervisedDatasetProcessor(DatasetProcessor):
                 logger.warning_rank0(
                     f"Skipped example {i} due to label order mismatch with global label list."
                 )
+                self._ml_stats["label_order"] += 1
                 continue
 
             binary_targets = [1.0 if tag == "<yes>" else 0.0 for tag in parsed_tags]
@@ -189,6 +196,7 @@ class SupervisedDatasetProcessor(DatasetProcessor):
                 logger.warning_rank0(
                     f"Skipped example {i} due to mismatched label token count: {len(label_positions)} vs {self._num_labels}."
                 )
+                self._ml_stats["label_token_mismatch"] += 1
                 continue
 
             if self.tokenizer.eos_token_id is not None:
@@ -198,6 +206,7 @@ class SupervisedDatasetProcessor(DatasetProcessor):
                 logger.warning_rank0(
                     f"Dropped lengthy example {i} with length {len(input_ids)} > {self.data_args.cutoff_len}."
                 )
+                self._ml_stats["too_long"] += 1
                 continue
 
             labels = input_ids[:]
@@ -210,6 +219,8 @@ class SupervisedDatasetProcessor(DatasetProcessor):
             model_inputs["binary_targets"].append(binary_targets)
             model_inputs["full_text"].append(full_text)
             model_inputs["prompt_text"].append(prompt_text)
+
+            self._ml_stats["kept"] += 1
 
         return model_inputs
 

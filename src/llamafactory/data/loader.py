@@ -260,6 +260,22 @@ def _get_preprocessed_dataset(
         **kwargs,
     )
 
+    if not data_args.streaming and len(dataset) == 0:
+        if getattr(data_args, "task_type", None) == "multi_label_sft_logits":
+            stats = getattr(dataset_processor, "_ml_stats", {}) or {}
+            reason = (
+                "No valid multi-label samples remained after preprocessing. "
+                "Check that each example lists all labels in the global order from assets/labels_file.json "
+                "with <yes>/<no> tags and stays within cutoff length."
+            )
+            if stats:
+                reason += f" Stats: {dict(stats)}"
+            raise RuntimeError(reason)
+
+        if stage == "pt":
+            raise RuntimeError("Cannot find sufficient samples, consider increasing dataset size.")
+        raise RuntimeError("Cannot find valid samples, check `data/README.md` for the data format.")
+
     if training_args.should_log:
         try:
             print("eval example:" if is_eval else "training example:")
