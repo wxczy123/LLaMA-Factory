@@ -25,7 +25,7 @@ from ...extras.packages import is_transformers_version_greater_than
 from ...extras.ploting import plot_loss
 from ...model import load_model, load_tokenizer
 from ..trainer_utils import create_modelcard_and_push
-from .metric import ComputeAccuracy, ComputeSimilarity, eval_logit_processor
+from .metric import ComputeAccuracy, ComputeMultiLabelMetrics, ComputeSimilarity, eval_logit_processor
 from .trainer import CustomSeq2SeqTrainer
 
 
@@ -48,6 +48,10 @@ def run_sft(
 ):
     tokenizer_module = load_tokenizer(model_args)
     tokenizer = tokenizer_module["tokenizer"]
+
+    if getattr(data_args, "task_type", None) == "multi_label_sft_logits":
+        tokenizer.add_special_tokens({"additional_special_tokens": ["<yes>", "<no>"]})
+        model_args.resize_vocab = True
     template = get_template_and_fix_tokenizer(tokenizer, data_args)
     dataset_module = get_dataset(template, model_args, data_args, training_args, stage="sft", **tokenizer_module)
     model = load_model(tokenizer, model_args, finetuning_args, training_args.do_train)
@@ -68,7 +72,9 @@ def run_sft(
 
     # Metric utils
     metric_module = {}
-    if training_args.predict_with_generate:
+    if finetuning_args.task_type == "multi_label_sft_logits":
+        metric_module["compute_metrics"] = ComputeMultiLabelMetrics()
+    elif training_args.predict_with_generate:
         metric_module["compute_metrics"] = ComputeSimilarity(tokenizer=tokenizer)
     elif finetuning_args.compute_accuracy:
         metric_module["compute_metrics"] = ComputeAccuracy()
@@ -99,6 +105,7 @@ def run_sft(
         data_collator=data_collator,
         callbacks=callbacks,
         gen_kwargs=gen_kwargs,
+        data_args=data_args,
         **dataset_module,
         **tokenizer_module,
         **metric_module,

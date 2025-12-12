@@ -682,6 +682,29 @@ See [examples/README.md](examples/README.md) for advanced usage (including distr
 >
 > Read [FAQs](https://github.com/hiyouga/LLaMA-Factory/issues/4614) first if you encounter any problems.
 
+### Multi-label SFT logits mode
+
+Use the `multi_label_sft_logits` task type to fine-tune on multi-label data with `<yes>/<no>` supervision. A minimal workflow:
+
+1. **Prepare data** following the format in [`assets/abstracts.json`](assets/abstracts.json). Each record should contain `instruction`, `input`, and `output` where the `output` enumerates all labels in the global order defined by [`assets/labels_file.json`](assets/labels_file.json) using `{Label_i}<yes>` / `{Label_i}<no>`.
+2. **Configure the task** by setting `task_type: multi_label_sft_logits` in your YAML/CLI args. The tokenizer automatically adds `<yes>` / `<no>` and resizes the model vocabulary.
+3. **Tune classification losses** with `--use_bce_loss`, `--use_dice_loss`, `--use_hier_loss`, and their weights (`--lambda_*`). Enable positive class reweighting with `--use_pos_weight` (optionally provide `--pos_weight_file`); otherwise the weights are estimated from the training set.
+4. **Choose evaluation flow**: teacher-forced logits (`--use_teacher_forcing_logits true`) compute BCE/Dice/Hierarchy losses plus micro/macro F1 and exact-match; generation mode (`--use_teacher_forcing_logits false`) starts from the prompt only and reports metrics from parsed `<yes>/<no>` outputs.
+
+A sample command (paths may be adjusted):
+
+```bash
+llamafactory-cli train \
+  --model_name_or_path your-model \
+  --dataset assets/abstracts.json \
+  --task_type multi_label_sft_logits \
+  --use_bce_loss True --use_dice_loss True --use_hier_loss True \
+  --lambda_sft 1.0 --lambda_bce 1.0 --lambda_dice 1.0 --lambda_hier 1.0 \
+  --use_teacher_forcing_logits True
+```
+
+The trainer enforces the global label order and stable `<yes>/<no>` positions when constructing targets and classification logits.
+
 ### Fine-Tuning with LLaMA Board GUI (powered by [Gradio](https://github.com/gradio-app/gradio))
 
 ```bash
