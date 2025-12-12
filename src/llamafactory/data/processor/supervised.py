@@ -12,8 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
+import re
 from collections import defaultdict
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
 from ...extras import logging
@@ -30,6 +33,27 @@ logger = logging.get_logger(__name__)
 
 @dataclass
 class SupervisedDatasetProcessor(DatasetProcessor):
+    def __post_init__(self):
+        self._label_list = None
+        self._num_labels = None
+        self._ml_stats = None
+
+    def _load_label_space(self):
+        if self._label_list is not None:
+            return
+
+        assets_dir = Path(__file__).resolve().parents[4] / "assets"
+        labels_path = assets_dir / "labels_file.json"
+        with open(labels_path, "r", encoding="utf-8") as f:
+            label_mapping = json.load(f)
+
+        label_list = [None] * len(label_mapping)
+        for name, idx in label_mapping.items():
+            label_list[idx] = name
+
+        self._label_list = label_list
+        self._num_labels = len(label_list)
+
     def _encode_data_example(
         self,
         prompt: list[dict[str, str]],
@@ -86,6 +110,9 @@ class SupervisedDatasetProcessor(DatasetProcessor):
         return input_ids, labels
 
     def preprocess_dataset(self, examples: dict[str, list[Any]]) -> dict[str, list[Any]]:
+        if getattr(self.data_args, "task_type", None) == "multi_label_sft_logits":
+            return self._preprocess_multi_label_dataset(examples)
+
         # build inputs with format `<bos> X Y <eos>` and labels with format `<ignore> ... <ignore> Y <eos>`
         # for multiturn examples, we only mask the prompt part in each prompt-response pair.
         model_inputs = defaultdict(list)
@@ -120,6 +147,82 @@ class SupervisedDatasetProcessor(DatasetProcessor):
         print("inputs:\n{}".format(self.tokenizer.decode(example["input_ids"], skip_special_tokens=False)))
         print("label_ids:\n{}".format(example["labels"]))
         print(f"labels:\n{self.tokenizer.decode(valid_labels, skip_special_tokens=False)}")
+
+    def _preprocess_multi_label_dataset(self, examples: dict[str, list[Any]]) -> dict[str, list[Any]]:
+        self._load_label_space()
+
+        if self._ml_stats is None:
+            self._ml_stats = defaultdict(int)
+
+        yes_id = self.tokenizer.convert_tokens_to_ids("<yes>")
+        no_id = self.tokenizer.convert_tokens_to_ids("<no>")
+        if yes_id == self.tokenizer.unk_token_id or no_id == self.tokenizer.unk_token_id:
+            raise ValueError("<yes>/<no> tokens must be added to the tokenizer before preprocessing.")
+
+        model_inputs = defaultdict(list)
+        pattern = re.compile(r"\{([^{}]+)\}\s*(<yes>|<no>)")
+        for i in range(len(examples.get("_prompt", []))):
+            self._ml_stats["total"] += 1
+            instruction = (examples.get("_ml_instruction", [""])[i] or "").strip()
+            query = (examples.get("_ml_input", [""])[i] or "").strip()
+            output = (examples.get("_ml_output", [""])[i] or "").strip()
+
+            full_text = f"{instruction}\n\n{query}\n\n{output}"
+            prompt_text = f"{instruction}\n\n{query}\n\n"
+
+            parsed = pattern.findall(output)
+            if len(parsed) != self._num_labels:
+                logger.warning_rank0(
+                    f"Skipped example {i} due to mismatched parsed label count: {len(parsed)} vs {self._num_labels}."
+                )
+                self._ml_stats["parsed_mismatch"] += 1
+                continue
+
+            parsed_labels, parsed_tags = zip(*parsed)
+            if list(parsed_labels) != self._label_list:
+                logger.warning_rank0(
+                    f"Skipped example {i} due to label order mismatch with global label list."
+                )
+                self._ml_stats["label_order"] += 1
+                continue
+
+            binary_targets = [1.0 if tag == "<yes>" else 0.0 for tag in parsed_tags]
+
+            tokenized = self.tokenizer(full_text, add_special_tokens=False)
+            input_ids = tokenized["input_ids"]
+            label_positions = [idx for idx, tid in enumerate(input_ids) if tid in (yes_id, no_id)]
+
+            if len(label_positions) != self._num_labels:
+                logger.warning_rank0(
+                    f"Skipped example {i} due to mismatched label token count: {len(label_positions)} vs {self._num_labels}."
+                )
+                self._ml_stats["label_token_mismatch"] += 1
+                continue
+
+            if self.tokenizer.eos_token_id is not None:
+                input_ids = input_ids + [self.tokenizer.eos_token_id]
+
+            if len(input_ids) > self.data_args.cutoff_len:
+                logger.warning_rank0(
+                    f"Dropped lengthy example {i} with length {len(input_ids)} > {self.data_args.cutoff_len}."
+                )
+                self._ml_stats["too_long"] += 1
+                continue
+
+            labels = input_ids[:]
+            attention_mask = [1] * len(input_ids)
+
+            model_inputs["input_ids"].append(input_ids)
+            model_inputs["attention_mask"].append(attention_mask)
+            model_inputs["labels"].append(labels)
+            model_inputs["label_positions"].append(label_positions)
+            model_inputs["binary_targets"].append(binary_targets)
+            model_inputs["full_text"].append(full_text)
+            model_inputs["prompt_text"].append(prompt_text)
+
+            self._ml_stats["kept"] += 1
+
+        return model_inputs
 
 
 @dataclass
