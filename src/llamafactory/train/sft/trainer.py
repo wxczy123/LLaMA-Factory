@@ -176,13 +176,19 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
         logits_no = logits_label_tokens[..., self.no_id]
         return logits_yes - logits_no
 
-    def _compute_classification_losses(self, binary_logits: torch.Tensor, binary_targets: torch.Tensor) -> torch.Tensor:
-        loss_cls = torch.tensor(0.0, device=binary_logits.device)
+    def _compute_classification_losses(
+        self, binary_logits: torch.Tensor, binary_targets: torch.Tensor
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        loss_cls = torch.zeros((), device=binary_logits.device, dtype=binary_logits.dtype)
+        losses: dict[str, torch.Tensor] = {}
         probs = torch.sigmoid(binary_logits)
 
         if self.finetuning_args.use_bce_loss:
             pos_weight = self._pos_weight.to(binary_logits.device) if self._pos_weight is not None else None
+            if pos_weight is not None:
+                pos_weight = pos_weight.to(dtype=binary_logits.dtype)
             loss_bce = F.binary_cross_entropy_with_logits(binary_logits, binary_targets, pos_weight=pos_weight)
+            losses["loss_bce"] = loss_bce
             loss_cls = loss_cls + self.finetuning_args.lambda_bce * loss_bce
 
         if self.finetuning_args.use_dice_loss:
@@ -191,6 +197,7 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
             union = probs.sum(dim=-1) + binary_targets.sum(dim=-1)
             dice_score = (2 * intersection + smooth) / (union + smooth)
             loss_dice = 1.0 - dice_score.mean()
+            losses["loss_dice"] = loss_dice
             loss_cls = loss_cls + self.finetuning_args.lambda_dice * loss_dice
 
         if self.finetuning_args.use_hier_loss and self._parent_child_pairs is not None:
@@ -201,9 +208,22 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
                 violations.append(F.relu(p_child - p_parent))
             if violations:
                 loss_hier = torch.stack(violations, dim=0).mean()
+                losses["loss_hier"] = loss_hier
                 loss_cls = loss_cls + self.finetuning_args.lambda_hier * loss_hier
 
-        return loss_cls
+        losses["loss_cls"] = loss_cls
+        return loss_cls, losses
+
+    def _log_multi_label_losses(self, logs: dict[str, torch.Tensor]) -> None:
+        safe_logs = {}
+        for key, value in logs.items():
+            if value is None:
+                continue
+            if isinstance(value, torch.Tensor):
+                value = value.detach().to(torch.float32).item()
+            safe_logs[key] = value
+        if safe_logs:
+            self.log(safe_logs)
 
     def _generate_multi_label(self, prompts: list[str], model: "torch.nn.Module") -> list[str]:
         if len(prompts) == 0:
@@ -259,12 +279,22 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
             }
             outputs = model(**model_inputs)
             sft_loss = outputs.loss
+            logs: dict[str, torch.Tensor] = {}
+            if sft_loss is not None:
+                logs["loss_sft"] = sft_loss
+
             if self._classification_enabled() and "label_positions" in inputs and "binary_targets" in inputs:
                 binary_logits = self._extract_binary_logits(outputs.logits, inputs["label_positions"])
-                loss_cls = self._compute_classification_losses(binary_logits, inputs["binary_targets"].float())
+                binary_targets = inputs["binary_targets"].to(dtype=binary_logits.dtype)
+                loss_cls, loss_parts = self._compute_classification_losses(binary_logits, binary_targets)
+                logs.update(loss_parts)
                 loss = self.finetuning_args.lambda_sft * sft_loss + loss_cls if sft_loss is not None else loss_cls
             else:
                 loss = sft_loss
+
+            if loss is not None:
+                logs["loss"] = loss
+            self._log_multi_label_losses(logs)
 
             return (loss, outputs) if return_outputs else loss
 
@@ -283,20 +313,20 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
             inputs = self._prepare_inputs(inputs)
             label_positions = inputs.pop("label_positions", None)
             binary_targets = inputs.pop("binary_targets", None)
-            if binary_targets is not None:
-                binary_targets = binary_targets.float()
             prompt_text = inputs.pop("prompt_text", inputs.pop("full_text", None))
 
             if self.finetuning_args.use_teacher_forcing_logits:
-                outputs = model(**inputs)
-                loss = outputs.loss
-                binary_logits = self._extract_binary_logits(outputs.logits, label_positions)
-                if self._classification_enabled() and binary_targets is not None:
-                    loss_cls = self._compute_classification_losses(binary_logits, binary_targets.float())
-                    loss = self.finetuning_args.lambda_sft * loss + loss_cls if loss is not None else loss_cls
+                with torch.no_grad():
+                    outputs = model(**inputs)
+                    loss = outputs.loss
+                    binary_logits = self._extract_binary_logits(outputs.logits, label_positions)
+                    if self._classification_enabled() and binary_targets is not None:
+                        binary_targets_cast = binary_targets.to(dtype=binary_logits.dtype)
+                        loss_cls, _ = self._compute_classification_losses(binary_logits, binary_targets_cast)
+                        loss = self.finetuning_args.lambda_sft * loss + loss_cls if loss is not None else loss_cls
 
-                probs = torch.sigmoid(binary_logits)
-                preds = (probs >= 0.5).float()
+                    probs = torch.sigmoid(binary_logits)
+                    preds = (probs >= 0.5).float()
                 if prediction_loss_only:
                     return loss, None, None
                 return loss, preds, binary_targets

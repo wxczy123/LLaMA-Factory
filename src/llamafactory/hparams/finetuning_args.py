@@ -547,7 +547,7 @@ class FinetuningArguments(
         metadata={"help": "Optional path to a precomputed positive weight vector (length equals label size)."},
     )
     use_teacher_forcing_logits: bool = field(
-        default=True,
+        default=False,
         metadata={"help": "Whether to use teacher-forced logits for evaluation in multi-label SFT."},
     )
     disable_shuffling: bool = field(

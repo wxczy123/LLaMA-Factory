@@ -67,29 +67,36 @@ def gen_loss_plot(trainer_log: list[dict[str, Any]]) -> "matplotlib.figure.Figur
 
 
 def plot_loss(save_dictionary: str, keys: list[str] = ["loss"]) -> None:
-    r"""Plot loss curves and saves the image."""
+    r"""Plot loss curves and saves the image in a single figure when multiple keys are provided."""
     plt.switch_backend("agg")
     with open(os.path.join(save_dictionary, TRAINER_STATE_NAME), encoding="utf-8") as f:
         data = json.load(f)
 
+    series: dict[str, tuple[list[int], list[float]]] = {}
     for key in keys:
         steps, metrics = [], []
-        for i in range(len(data["log_history"])):
-            if key in data["log_history"][i]:
-                steps.append(data["log_history"][i]["step"])
-                metrics.append(data["log_history"][i][key])
+        for log in data.get("log_history", []):
+            if key in log:
+                steps.append(log["step"])
+                metrics.append(log[key])
 
         if len(metrics) == 0:
             logger.warning_rank0(f"No metric {key} to plot.")
             continue
+        series[key] = (steps, metrics)
 
-        plt.figure()
-        plt.plot(steps, metrics, color="#1f77b4", alpha=0.4, label="original")
-        plt.plot(steps, smooth(metrics), color="#1f77b4", label="smoothed")
-        plt.title(f"training {key} of {save_dictionary}")
-        plt.xlabel("step")
-        plt.ylabel(key)
-        plt.legend()
-        figure_path = os.path.join(save_dictionary, "training_{}.png".format(key.replace("/", "_")))
-        plt.savefig(figure_path, format="png", dpi=100)
-        print("Figure saved at:", figure_path)
+    if len(series) == 0:
+        return
+
+    plt.figure()
+    for key, (steps, metrics) in series.items():
+        plt.plot(steps, metrics, alpha=0.35, label=f"{key} (raw)")
+        plt.plot(steps, smooth(metrics), label=f"{key} (smoothed)")
+
+    plt.title(f"training metrics of {save_dictionary}")
+    plt.xlabel("step")
+    plt.ylabel("value")
+    plt.legend()
+    figure_path = os.path.join(save_dictionary, "training_losses.png")
+    plt.savefig(figure_path, format="png", dpi=100)
+    print("Figure saved at:", figure_path)

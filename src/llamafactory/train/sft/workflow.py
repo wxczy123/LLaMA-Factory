@@ -125,6 +125,8 @@ def run_sft(
         trainer.save_state()
         if trainer.is_world_process_zero() and finetuning_args.plot_loss:
             keys = ["loss"]
+            if data_args.task_type == "multi_label_sft_logits":
+                keys += ["loss_sft", "loss_cls", "loss_bce", "loss_dice", "loss_hier"]
             if isinstance(dataset_module.get("eval_dataset"), dict):
                 keys += sum(
                     [[f"eval_{key}_loss", f"eval_{key}_accuracy"] for key in dataset_module["eval_dataset"].keys()], []
