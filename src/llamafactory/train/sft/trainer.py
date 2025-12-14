@@ -317,7 +317,8 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
 
             if self.finetuning_args.use_teacher_forcing_logits:
                 with torch.no_grad():
-                    outputs = model(**inputs)
+                    with self.compute_loss_context_manager():
+                        outputs = model(**inputs)
                     loss = outputs.loss
                     binary_logits = self._extract_binary_logits(outputs.logits, label_positions)
                     if self._classification_enabled() and binary_targets is not None:
