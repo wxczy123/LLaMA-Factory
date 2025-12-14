@@ -229,9 +229,21 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
     def _generate_multi_label(self, prompts: list[str], model: "torch.nn.Module") -> list[str]:
         if len(prompts) == 0:
             return []
-        inputs = self.processing_class(
-            prompts, return_tensors="pt", padding=True, truncation=True, add_special_tokens=False
-        ).to(model.device)
+
+        # Decoder-only models require left padding for generation. Temporarily switch the tokenizer
+        # padding side to avoid right-padding warnings and potential generation artifacts.
+        orig_padding = getattr(self.processing_class, "padding_side", None)
+        try:
+            if orig_padding != "left":
+                self.processing_class.padding_side = "left"
+
+            inputs = self.processing_class(
+                prompts, return_tensors="pt", padding=True, truncation=True, add_special_tokens=False
+            ).to(model.device)
+        finally:
+            if orig_padding is not None:
+                self.processing_class.padding_side = orig_padding
+
         gen_kwargs = getattr(self, "_gen_kwargs", {})
         with torch.no_grad():
             with ExitStack() as stack:
@@ -319,6 +331,16 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
             label_positions = inputs.pop("label_positions", None)
             binary_targets = inputs.pop("binary_targets", None)
             prompt_text = inputs.pop("prompt_text", inputs.pop("full_text", None))
+
+            if not self.finetuning_args.eval_with_generate:
+                stripped_inputs = {
+                    k: v
+                    for k, v in inputs.items()
+                    if k not in {"label_positions", "binary_targets", "full_text", "prompt_text"}
+                }
+                return super().prediction_step(
+                    model, stripped_inputs, prediction_loss_only=prediction_loss_only, ignore_keys=ignore_keys, **gen_kwargs
+                )
 
             if self.finetuning_args.use_teacher_forcing_logits:
                 with torch.no_grad():

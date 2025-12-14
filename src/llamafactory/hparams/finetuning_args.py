@@ -550,6 +550,15 @@ class FinetuningArguments(
         default=False,
         metadata={"help": "Whether to use teacher-forced logits for evaluation in multi-label SFT."},
     )
+    eval_with_generate: bool = field(
+        default=False,
+        metadata={
+            "help": (
+                "Whether to run generation-style evaluation for multi-label logits tasks. "
+                "When disabled, evaluation falls back to standard loss-only validation without classification losses."
+            )
+        },
+    )
     disable_shuffling: bool = field(
         default=False,
         metadata={"help": "Whether or not to disable the shuffling of the training set."},

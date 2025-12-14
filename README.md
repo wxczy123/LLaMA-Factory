@@ -689,7 +689,7 @@ Use the `multi_label_sft_logits` task type to fine-tune on multi-label data with
 1. **Prepare data** following the format in [`assets/abstracts.json`](assets/abstracts.json). Each record should contain `instruction`, `input`, and `output` where the `output` enumerates all labels in the global order defined by [`assets/labels_file.json`](assets/labels_file.json) using `{Label_i}<yes>` / `{Label_i}<no>`.
 2. **Configure the task** by setting `task_type: multi_label_sft_logits` in your YAML/CLI args. The tokenizer automatically adds `<yes>` / `<no>` and resizes the model vocabulary.
 3. **Tune classification losses** with `--use_bce_loss`, `--use_dice_loss`, `--use_hier_loss`, and their weights (`--lambda_*`). Enable positive class reweighting with `--use_pos_weight` (optionally provide `--pos_weight_file`); otherwise the weights are estimated from the training set.
-4. **Choose evaluation flow**: generation mode (`--use_teacher_forcing_logits false`, default) starts from the prompt only and reports metrics from parsed `<yes>/<no>` outputs; if explicitly enabled, teacher-forced logits (`--use_teacher_forcing_logits true`) also compute BCE/Dice/Hierarchy losses plus micro/macro F1 and exact-match.
+4. **Choose evaluation flow**: by default (`--eval_with_generate false`) evaluation runs the standard loss-only path without multi-label classification losses. To score via generation, enable `--eval_with_generate true` (optionally with `--use_teacher_forcing_logits true` to reuse teacher-forced logits); generation-mode evaluation parses `<yes>/<no>` outputs for micro/macro F1 and exact-match.
 
 A sample command (paths may be adjusted):
 
@@ -700,7 +700,7 @@ llamafactory-cli train \
   --task_type multi_label_sft_logits \
   --use_bce_loss True --use_dice_loss True --use_hier_loss True \
   --lambda_sft 1.0 --lambda_bce 1.0 --lambda_dice 1.0 --lambda_hier 1.0 \
-  --use_teacher_forcing_logits False
+  --eval_with_generate True --use_teacher_forcing_logits False
 ```
 
 The trainer enforces the global label order and stable `<yes>/<no>` positions when constructing targets and classification logits.
