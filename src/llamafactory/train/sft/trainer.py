@@ -332,6 +332,16 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
             binary_targets = inputs.pop("binary_targets", None)
             prompt_text = inputs.pop("prompt_text", inputs.pop("full_text", None))
 
+            if not self.finetuning_args.eval_with_generate:
+                stripped_inputs = {
+                    k: v
+                    for k, v in inputs.items()
+                    if k not in {"label_positions", "binary_targets", "full_text", "prompt_text"}
+                }
+                return super().prediction_step(
+                    model, stripped_inputs, prediction_loss_only=prediction_loss_only, ignore_keys=ignore_keys, **gen_kwargs
+                )
+
             if self.finetuning_args.use_teacher_forcing_logits:
                 with torch.no_grad():
                     with self.compute_loss_context_manager():
