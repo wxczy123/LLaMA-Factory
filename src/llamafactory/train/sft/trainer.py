@@ -332,7 +332,7 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
             binary_targets = inputs.pop("binary_targets", None)
             prompt_text = inputs.pop("prompt_text", inputs.pop("full_text", None))
 
-            if not self.finetuning_args.eval_with_generate:
+            if not self.finetuning_args.eval_with_generate and not self.finetuning_args.use_teacher_forcing_logits:
                 stripped_inputs = {
                     k: v
                     for k, v in inputs.items()
