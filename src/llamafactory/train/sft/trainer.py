@@ -18,6 +18,7 @@
 import json
 import os
 import re
+from contextlib import ExitStack
 from types import MethodType
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional, Union
@@ -233,7 +234,11 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
         ).to(model.device)
         gen_kwargs = getattr(self, "_gen_kwargs", {})
         with torch.no_grad():
-            outputs = model.generate(**inputs, **gen_kwargs)
+            with ExitStack() as stack:
+                stack.enter_context(self.compute_loss_context_manager())
+                if hasattr(self, "accelerator"):
+                    stack.enter_context(self.accelerator.autocast())
+                outputs = model.generate(**inputs, **gen_kwargs)
         return self.processing_class.batch_decode(outputs, skip_special_tokens=True)
 
     def _parse_generated_predictions(self, texts: list[str]) -> torch.Tensor:
