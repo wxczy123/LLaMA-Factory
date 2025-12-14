@@ -128,6 +128,13 @@ class AlpacaDatasetConverter(DatasetConverter):
             "_videos": self._find_medias(example[self.dataset_attr.videos]) if self.dataset_attr.videos else None,
             "_audios": self._find_medias(example[self.dataset_attr.audios]) if self.dataset_attr.audios else None,
         }
+
+        if getattr(self.data_args, "task_type", None) == "multi_label_sft_logits":
+            output["_ml_instruction"] = example.get(self.dataset_attr.prompt or "", "") or ""
+            output["_ml_input"] = example.get(self.dataset_attr.query or "", "") or ""
+            raw_response = example[self.dataset_attr.response] if self.dataset_attr.response else ""
+            output["_ml_output"] = raw_response if isinstance(raw_response, str) else ""
+
         return output
 
 
