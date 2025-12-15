@@ -104,6 +104,7 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
         self._pos_weight: Optional[torch.Tensor] = None
         self._num_labels: Optional[int] = None
         self._alignment_debug_done: bool = False
+        self._collected_generation_texts: list[str] = []
         if self._is_multi_label_task:
             self._init_multi_label_resources()
 
@@ -266,6 +267,71 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
         if safe_logs:
             self.log(safe_logs)
 
+    def _compute_generation_statistics(
+        self, pred_vectors: np.ndarray, label_vectors: np.ndarray
+    ) -> dict[str, float]:
+        preds = (pred_vectors >= 0.5).astype(np.float32)
+        labels = label_vectors.astype(np.float32)
+        eps = 1e-8
+
+        hamming_loss = float(np.not_equal(preds, labels).mean()) if labels.size else 0.0
+        subset_accuracy = float((preds == labels).all(axis=1).mean()) if labels.size else 0.0
+
+        tp = float((preds * labels).sum())
+        fp = float((preds * (1 - labels)).sum())
+        fn = float(((1 - preds) * labels).sum())
+        precision = tp / (tp + fp + eps)
+        recall = tp / (tp + fn + eps)
+        f1 = 0.0 if precision + recall == 0 else 2 * precision * recall / (precision + recall)
+
+        hier_preds = preds.copy()
+        if self._parent_child_pairs:
+            for parent_idx, child_idx in self._parent_child_pairs:
+                hier_preds[:, child_idx] = np.minimum(hier_preds[:, child_idx], hier_preds[:, parent_idx])
+
+        hier_tp = float((hier_preds * labels).sum())
+        hier_fp = float((hier_preds * (1 - labels)).sum())
+        hier_fn = float(((1 - hier_preds) * labels).sum())
+        hier_precision = hier_tp / (hier_tp + hier_fp + eps)
+        hier_recall = hier_tp / (hier_tp + hier_fn + eps)
+        hier_f1 = (
+            0.0 if hier_precision + hier_recall == 0 else 2 * hier_precision * hier_recall / (hier_precision + hier_recall)
+        )
+
+        violation_total = float(len(self._parent_child_pairs or []) * preds.shape[0])
+        if violation_total > 0:
+            violations = 0.0
+            for parent_idx, child_idx in self._parent_child_pairs or []:
+                violations += float(((preds[:, child_idx] > preds[:, parent_idx])).sum())
+            violation_rate = violations / (violation_total + eps)
+        else:
+            violation_rate = 0.0
+
+        return {
+            "hamming_loss": hamming_loss,
+            "exact_match": subset_accuracy,
+            "precision": precision,
+            "recall": recall,
+            "f1": f1,
+            "hierarchical_f1": hier_f1,
+            "hierarchical_violation_rate": violation_rate,
+        }
+
+    def _split_multi_label_predictions(
+        self, predictions: Any
+    ) -> tuple[Optional[np.ndarray], Optional[list[str]]]:
+        pred_vectors = None
+        pred_texts: list[str] | None = None
+        if isinstance(predictions, (list, tuple)):
+            if len(predictions) > 0:
+                pred_vectors = np.array(predictions[0])
+            if len(predictions) > 1 and predictions[1] is not None:
+                pred_texts = predictions[1].tolist() if isinstance(predictions[1], np.ndarray) else list(predictions[1])
+        else:
+            pred_vectors = np.array(predictions)
+
+        return pred_vectors, pred_texts
+
     def _generate_multi_label(self, prompts: list[str], model: "torch.nn.Module") -> list[str]:
         if len(prompts) == 0:
             return []
@@ -324,6 +390,18 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
             return torch.utils.data.SequentialSampler(self.train_dataset)
 
         return super()._get_train_sampler(*args, **kwargs)
+
+    @override
+    def evaluate(self, *args, **kwargs):
+        if self._is_multi_label_task:
+            self._collected_generation_texts = []
+        return super().evaluate(*args, **kwargs)
+
+    @override
+    def predict(self, *args, **kwargs):
+        if self._is_multi_label_task:
+            self._collected_generation_texts = []
+        return super().predict(*args, **kwargs)
 
     @override
     def compute_loss(self, model, inputs, *args, **kwargs):
@@ -411,11 +489,12 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
 
             prompts = prompt_text if isinstance(prompt_text, list) else []
             generated_texts = self._generate_multi_label(prompts, model)
-            preds = self._parse_generated_predictions(generated_texts)
+            preds = self._parse_generated_predictions(generated_texts).detach().clone()
+            self._collected_generation_texts.extend(generated_texts)
             if prediction_loss_only:
                 return None, None, None
             label_out = binary_targets.detach().clone() if isinstance(binary_targets, torch.Tensor) else binary_targets
-            return None, preds, label_out
+            return None, (preds, generated_texts), label_out
 
         # default behavior
         r"""Remove the prompt part in the generated tokens.
@@ -450,23 +529,40 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
         logger.info_rank0(f"Saving prediction results to {output_prediction_file}")
 
         if self._is_multi_label_task:
-            preds_array = np.array(predict_results.predictions)
+            pred_vectors, pred_texts = self._split_multi_label_predictions(predict_results.predictions)
             labels_array = np.array(predict_results.label_ids) if predict_results.label_ids is not None else None
 
+            metrics: dict[str, float] | None = None
+            if self.finetuning_args.statistics_pre and pred_vectors is not None and labels_array is not None:
+                metrics = self._compute_generation_statistics(pred_vectors, labels_array)
+                metrics_path = os.path.join(self.args.output_dir, "predict_metrics.json")
+                with open(metrics_path, "w", encoding="utf-8") as mf:
+                    json.dump(metrics, mf, ensure_ascii=False, indent=2)
+
             with open(output_prediction_file, "w", encoding="utf-8") as f:
-                for idx, pred_vec in enumerate(preds_array):
-                    entry: dict[str, Any] = {"predict_vector": pred_vec.tolist()}
-                    if labels_array is not None:
-                        entry["label_vector"] = labels_array[idx].tolist()
-                    if self._label_list is not None:
-                        label_dict = {
-                            name: ("yes" if pred_vec[j] >= 0.5 else "no") for j, name in enumerate(self._label_list)
-                        }
-                        entry["predict_dict"] = label_dict
+                total = pred_vectors.shape[0] if pred_vectors is not None else len(pred_texts or [])
+                for idx in range(total):
+                    entry: dict[str, Any] = {}
+                    if pred_texts is not None and idx < len(pred_texts):
+                        entry["predict_text"] = pred_texts[idx]
+                    if self.finetuning_args.statistics_pre and pred_vectors is not None:
+                        pred_vec = pred_vectors[idx]
+                        entry["predict_vector"] = pred_vec.tolist()
+                        if labels_array is not None:
+                            entry["label_vector"] = labels_array[idx].tolist()
+                        if self._label_list is not None:
+                            label_dict = {
+                                name: ("yes" if pred_vec[j] >= 0.5 else "no")
+                                for j, name in enumerate(self._label_list)
+                            }
+                            entry["predict_dict"] = label_dict
                     prompt = dataset[idx].get("prompt_text") or dataset[idx].get("full_text")
                     if prompt is not None:
                         entry["prompt"] = prompt
                     f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+            if metrics is not None:
+                predict_results.metrics.update(metrics)
             return
 
         labels = np.where(

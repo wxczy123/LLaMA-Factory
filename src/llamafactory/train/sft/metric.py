@@ -141,7 +141,10 @@ class ComputeMultiLabelMetrics:
     threshold: float = 0.5
 
     def __call__(self, eval_preds: "EvalPrediction", compute_result: bool = True) -> Optional[dict[str, float]]:
-        preds, labels = numpify(eval_preds.predictions), numpify(eval_preds.label_ids)
+        predictions = eval_preds.predictions
+        if isinstance(predictions, (list, tuple)):
+            predictions = predictions[0]
+        preds, labels = numpify(predictions), numpify(eval_preds.label_ids)
         if preds.ndim > 2:
             preds = preds.squeeze()
 

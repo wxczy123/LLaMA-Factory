@@ -550,6 +550,19 @@ class FinetuningArguments(
         default=False,
         metadata={"help": "Whether to use teacher-forced logits for evaluation in multi-label SFT."},
     )
+    statistics_pre: bool = field(
+        default=False,
+        metadata={
+            "help": (
+                "Enable generation-time multi-label statistics collection (Hamming loss, exact match, precision/recall/F1, "
+                "hierarchical metrics). When disabled, generation only returns text outputs."
+            )
+        },
+    )
+    statistics_results: bool = field(
+        default=False,
+        metadata={"help": "Compatibility flag for saving prediction statistics. Kept for backward compatibility."},
+    )
     eval_with_generate: bool = field(
         default=False,
         metadata={

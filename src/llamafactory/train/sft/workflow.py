@@ -260,6 +260,11 @@ def run_sft(
     if training_args.do_predict:
         logger.warning_rank0_once("Batch generation can be very slow. Consider using `scripts/vllm_infer.py` instead.")
         predict_results = trainer.predict(dataset_module["eval_dataset"], metric_key_prefix="predict", **gen_kwargs)
+        if getattr(data_args, "task_type", None) == "multi_label_sft_logits" and finetuning_args.statistics_pre:
+            pred_vectors, _ = trainer._split_multi_label_predictions(predict_results.predictions)
+            if pred_vectors is not None and predict_results.label_ids is not None:
+                stats = trainer._compute_generation_statistics(np.array(pred_vectors), np.array(predict_results.label_ids))
+                predict_results.metrics.update(stats)
         trainer.log_metrics("predict", predict_results.metrics)
         trainer.save_metrics("predict", predict_results.metrics)
         trainer.save_predictions(dataset_module["eval_dataset"], predict_results, generating_args.skip_special_tokens)
