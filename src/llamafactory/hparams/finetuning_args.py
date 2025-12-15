@@ -506,6 +506,80 @@ class FinetuningArguments(
         default=False,
         metadata={"help": "Whether or not to compute the token-level accuracy at evaluation."},
     )
+    use_bce_loss: bool = field(
+        default=True,
+        metadata={"help": "Enable BCE loss for multi-label SFT with logits."},
+    )
+    use_dice_loss: bool = field(
+        default=True,
+        metadata={"help": "Enable Dice loss for multi-label SFT with logits."},
+    )
+    use_hier_loss: bool = field(
+        default=True,
+        metadata={"help": "Enable hierarchical consistency loss for multi-label SFT with logits."},
+    )
+    lambda_sft: float = field(
+        default=1.0,
+        metadata={"help": "Weight for the standard SFT loss when mixing multi-label losses."},
+    )
+    lambda_bce: float = field(
+        default=1.0,
+        metadata={"help": "Weight for BCE loss in multi-label SFT with logits."},
+    )
+    lambda_dice: float = field(
+        default=1.0,
+        metadata={"help": "Weight for Dice loss in multi-label SFT with logits."},
+    )
+    lambda_hier: float = field(
+        default=1.0,
+        metadata={"help": "Weight for hierarchical loss in multi-label SFT with logits."},
+    )
+    use_pos_weight: bool = field(
+        default=False,
+        metadata={"help": "Whether to use positive class weighting in BCE loss."},
+    )
+    pos_weight_max: float = field(
+        default=50.0,
+        metadata={"help": "Maximum clipping value when computing positive class weights."},
+    )
+    pos_weight_file: Optional[str] = field(
+        default=None,
+        metadata={"help": "Optional path to a precomputed positive weight vector (length equals label size)."},
+    )
+    use_teacher_forcing_logits: bool = field(
+        default=False,
+        metadata={"help": "Whether to use teacher-forced logits for evaluation in multi-label SFT."},
+    )
+    statistics_pre: bool = field(
+        default=False,
+        metadata={
+            "help": (
+                "Enable generation-time multi-label statistics collection (Hamming loss, exact match, precision/recall/F1, "
+                "hierarchical metrics). When disabled, generation only returns text outputs."
+            )
+        },
+    )
+    statistics_results: bool = field(
+        default=False,
+        metadata={"help": "Compatibility flag for saving prediction statistics. Kept for backward compatibility."},
+    )
+    eval_with_generate: bool = field(
+        default=False,
+        metadata={
+            "help": (
+                "Whether to run generation-style evaluation for multi-label logits tasks. "
+                "When disabled, evaluation falls back to standard loss-only validation without classification losses."
+            )
+        },
+    )
+    debug_multilabel_alignment: bool = field(
+        default=False,
+        metadata={
+            "help": (
+                "Log a sample of label positions and surrounding tokens for multi-label tasks to verify <yes>/<no> alignment."
+            )
+        },
+    )
     disable_shuffling: bool = field(
         default=False,
         metadata={"help": "Whether or not to disable the shuffling of the training set."},

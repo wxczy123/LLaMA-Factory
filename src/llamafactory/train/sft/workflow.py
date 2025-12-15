@@ -17,6 +17,8 @@
 
 from typing import TYPE_CHECKING, Optional
 
+import numpy as np
+
 from ...data import SFTDataCollatorWith4DAttentionMask, get_dataset, get_template_and_fix_tokenizer
 from ...extras.constants import IGNORE_INDEX
 from ...extras.logging import get_logger
@@ -25,7 +27,7 @@ from ...extras.packages import is_transformers_version_greater_than
 from ...extras.ploting import plot_loss
 from ...model import load_model, load_tokenizer
 from ..trainer_utils import create_modelcard_and_push
-from .metric import ComputeAccuracy, ComputeSimilarity, eval_logit_processor
+from .metric import ComputeAccuracy, ComputeMultiLabelMetrics, ComputeSimilarity, eval_logit_processor
 from .trainer import CustomSeq2SeqTrainer
 
 
@@ -48,6 +50,10 @@ def run_sft(
 ):
     tokenizer_module = load_tokenizer(model_args)
     tokenizer = tokenizer_module["tokenizer"]
+
+    if getattr(data_args, "task_type", None) == "multi_label_sft_logits":
+        tokenizer.add_special_tokens({"additional_special_tokens": ["<yes>", "<no>"]})
+        model_args.resize_vocab = True
     template = get_template_and_fix_tokenizer(tokenizer, data_args)
     dataset_module = get_dataset(template, model_args, data_args, training_args, stage="sft", **tokenizer_module)
     model = load_model(tokenizer, model_args, finetuning_args, training_args.do_train)
@@ -68,7 +74,10 @@ def run_sft(
 
     # Metric utils
     metric_module = {}
-    if training_args.predict_with_generate:
+    if getattr(data_args, "task_type", None) == "multi_label_sft_logits":
+        if finetuning_args.eval_with_generate:
+            metric_module["compute_metrics"] = ComputeMultiLabelMetrics()
+    elif training_args.predict_with_generate:
         metric_module["compute_metrics"] = ComputeSimilarity(tokenizer=tokenizer)
     elif finetuning_args.compute_accuracy:
         metric_module["compute_metrics"] = ComputeAccuracy()
@@ -99,6 +108,7 @@ def run_sft(
         data_collator=data_collator,
         callbacks=callbacks,
         gen_kwargs=gen_kwargs,
+        data_args=data_args,
         **dataset_module,
         **tokenizer_module,
         **metric_module,
@@ -118,6 +128,8 @@ def run_sft(
         trainer.save_state()
         if trainer.is_world_process_zero() and finetuning_args.plot_loss:
             keys = ["loss"]
+            if data_args.task_type == "multi_label_sft_logits":
+                keys += ["loss_sft", "loss_cls", "loss_bce", "loss_dice", "loss_hier"]
             if isinstance(dataset_module.get("eval_dataset"), dict):
                 keys += sum(
                     [[f"eval_{key}_loss", f"eval_{key}_accuracy"] for key in dataset_module["eval_dataset"].keys()], []
@@ -140,6 +152,11 @@ def run_sft(
     if training_args.do_predict:
         logger.warning_rank0_once("Batch generation can be very slow. Consider using `scripts/vllm_infer.py` instead.")
         predict_results = trainer.predict(dataset_module["eval_dataset"], metric_key_prefix="predict", **gen_kwargs)
+        if getattr(data_args, "task_type", None) == "multi_label_sft_logits" and finetuning_args.statistics_pre:
+            pred_vectors, _ = trainer._split_multi_label_predictions(predict_results.predictions)
+            if pred_vectors is not None and predict_results.label_ids is not None:
+                stats = trainer._compute_generation_statistics(np.array(pred_vectors), np.array(predict_results.label_ids))
+                predict_results.metrics.update(stats)
         trainer.log_metrics("predict", predict_results.metrics)
         trainer.save_metrics("predict", predict_results.metrics)
         trainer.save_predictions(dataset_module["eval_dataset"], predict_results, generating_args.skip_special_tokens)
