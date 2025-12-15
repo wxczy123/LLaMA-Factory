@@ -132,3 +132,52 @@ class ComputeSimilarity:
 
         if compute_result:
             return self._dump()
+
+
+@dataclass
+class ComputeMultiLabelMetrics:
+    r"""Compute micro/macro F1 and exact match for multi-label outputs."""
+
+    threshold: float = 0.5
+
+    def __call__(self, eval_preds: "EvalPrediction", compute_result: bool = True) -> Optional[dict[str, float]]:
+        predictions = eval_preds.predictions
+        if isinstance(predictions, (list, tuple)):
+            predictions = predictions[0]
+        preds, labels = numpify(predictions), numpify(eval_preds.label_ids)
+        if preds.ndim > 2:
+            preds = preds.squeeze()
+
+        binary_preds = (preds >= self.threshold).astype(np.float32)
+        labels = labels.astype(np.float32)
+
+        tp = (binary_preds * labels).sum()
+        fp = (binary_preds * (1 - labels)).sum()
+        fn = ((1 - binary_preds) * labels).sum()
+        eps = 1e-8
+
+        micro_precision = tp / (tp + fp + eps)
+        micro_recall = tp / (tp + fn + eps)
+        micro_f1 = 0.0 if micro_precision + micro_recall == 0 else 2 * micro_precision * micro_recall / (micro_precision + micro_recall)
+
+        per_label_f1 = []
+        for j in range(labels.shape[1]):
+            tp_j = (binary_preds[:, j] * labels[:, j]).sum()
+            fp_j = (binary_preds[:, j] * (1 - labels[:, j])).sum()
+            fn_j = ((1 - binary_preds[:, j]) * labels[:, j]).sum()
+            precision_j = tp_j / (tp_j + fp_j + eps)
+            recall_j = tp_j / (tp_j + fn_j + eps)
+            f1_j = 0.0 if precision_j + recall_j == 0 else 2 * precision_j * recall_j / (precision_j + recall_j)
+            per_label_f1.append(f1_j)
+
+        macro_f1 = float(np.mean(per_label_f1)) if per_label_f1 else 0.0
+        exact_match = float((binary_preds == labels).all(axis=1).mean()) if labels.size else 0.0
+
+        if compute_result:
+            return {
+                "micro_f1": float(micro_f1),
+                "macro_f1": macro_f1,
+                "exact_match": exact_match,
+            }
+
+        return None

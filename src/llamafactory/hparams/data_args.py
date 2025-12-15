@@ -123,6 +123,10 @@ class DataArguments:
         default=True,
         metadata={"help": "Whether or not to enable thinking mode for reasoning models."},
     )
+    task_type: Optional[str] = field(
+        default=None,
+        metadata={"help": "Optional task type hint for specialized training objectives."},
+    )
     tokenized_path: Optional[str] = field(
         default=None,
         metadata={
