@@ -559,6 +559,16 @@ class FinetuningArguments(
             )
         },
     )
+    statistics_results: bool = field(
+        default=False,
+        metadata={
+            "help": (
+                "When using multi-label logits with generation-based prediction, compute aggregated statistics "
+                "(Hamming Loss, Subset Accuracy, Precision/Recall/F1, Hierarchical F1, Hierarchical Violation Rate) "
+                "from generated_predictions.jsonl. Ignored for non-multi-label tasks."
+            )
+        },
+    )
     disable_shuffling: bool = field(
         default=False,
         metadata={"help": "Whether or not to disable the shuffling of the training set."},

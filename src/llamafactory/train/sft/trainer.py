@@ -103,6 +103,7 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
         self._parent_child_pairs: Optional[list[tuple[int, int]]] = None
         self._pos_weight: Optional[torch.Tensor] = None
         self._num_labels: Optional[int] = None
+        self._ml_loss_buffer: dict[str, list[float]] = {}
         if self._is_multi_label_task:
             self._init_multi_label_resources()
 
@@ -215,16 +216,41 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
         losses["loss_cls"] = loss_cls
         return loss_cls, losses
 
+    def _validate_multi_label_batch(
+        self, label_positions: Optional[torch.Tensor], binary_targets: Optional[torch.Tensor]
+    ) -> None:
+        if label_positions is None or binary_targets is None:
+            return
+
+        expected = self._num_labels or binary_targets.size(-1)
+        if label_positions.dim() != 2 or binary_targets.dim() != 2:
+            raise ValueError("`label_positions` and `binary_targets` must be 2D tensors with shape [B, num_labels].")
+
+        if label_positions.size(1) != expected or binary_targets.size(1) != expected:
+            raise ValueError(
+                "Mismatch between label count and provided tensors: "
+                f"expected {expected}, got positions {label_positions.size()} and targets {binary_targets.size()}."
+            )
+
+        if binary_targets.min() < 0 or binary_targets.max() > 1:
+            raise ValueError("`binary_targets` must be in the range [0, 1].")
+
     def _log_multi_label_losses(self, logs: dict[str, torch.Tensor]) -> None:
-        safe_logs = {}
         for key, value in logs.items():
             if value is None:
                 continue
             if isinstance(value, torch.Tensor):
                 value = value.detach().to(torch.float32).item()
-            safe_logs[key] = value
-        if safe_logs:
-            self.log(safe_logs)
+            self._ml_loss_buffer.setdefault(key, []).append(float(value))
+
+        if self.control.should_log and self._ml_loss_buffer:
+            reduced_logs = {k: float(np.mean(v)) for k, v in self._ml_loss_buffer.items() if len(v) > 0}
+            if reduced_logs:
+                # Align multi-label component logging with the main trainer cadence so users can
+                # correlate averaged losses with optimizer steps rather than micro-batches.
+                reduced_logs["global_step"] = self.state.global_step
+                self.log(reduced_logs)
+            self._ml_loss_buffer.clear()
 
     def _generate_multi_label(self, prompts: list[str], model: "torch.nn.Module") -> list[str]:
         if len(prompts) == 0:
@@ -251,7 +277,7 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
                 if hasattr(self, "accelerator"):
                     stack.enter_context(self.accelerator.autocast())
                 outputs = model.generate(**inputs, **gen_kwargs)
-        return self.processing_class.batch_decode(outputs, skip_special_tokens=True)
+        return self._batch_decode(outputs, skip_special_tokens=True)
 
     def _parse_generated_predictions(self, texts: list[str]) -> torch.Tensor:
         preds = []
@@ -263,6 +289,32 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
             preds.append(vector)
 
         return torch.tensor(np.array(preds), dtype=torch.float32)
+
+    def _batch_decode(self, sequences, skip_special_tokens: bool = True) -> list[str]:
+        r"""Decode sequences while retaining <yes>/<no> even when skipping specials."""
+
+        if not (skip_special_tokens and self._is_multi_label_task):
+            return self.processing_class.batch_decode(sequences, skip_special_tokens=skip_special_tokens)
+
+        yes_id, no_id = self.yes_id, self.no_id
+        special_ids = set(getattr(self.processing_class, "all_special_ids", [])) - {yes_id, no_id}
+
+        filtered_sequences = []
+        for seq in sequences:
+            if isinstance(seq, torch.Tensor):
+                ids = seq.detach().cpu().tolist()
+            elif isinstance(seq, np.ndarray):
+                ids = seq.tolist()
+            else:
+                ids = list(seq)
+            filtered_sequences.append([token_id for token_id in ids if token_id not in special_ids])
+
+        return [
+            self.processing_class.decode(
+                ids, skip_special_tokens=False, clean_up_tokenization_spaces=True
+            )
+            for ids in filtered_sequences
+        ]
 
 
     @override
@@ -300,7 +352,18 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
             if sft_loss is not None:
                 logs["loss_sft"] = sft_loss
 
-            if self._classification_enabled() and "label_positions" in inputs and "binary_targets" in inputs:
+            classification_allowed = (
+                self.model.training
+                or self.finetuning_args.use_teacher_forcing_logits
+                or self.finetuning_args.eval_with_generate
+            )
+            if (
+                classification_allowed
+                and self._classification_enabled()
+                and "label_positions" in inputs
+                and "binary_targets" in inputs
+            ):
+                self._validate_multi_label_batch(inputs.get("label_positions"), inputs.get("binary_targets"))
                 binary_logits = self._extract_binary_logits(outputs.logits, inputs["label_positions"])
                 binary_targets = inputs["binary_targets"].to(dtype=binary_logits.dtype)
                 loss_cls, loss_parts = self._compute_classification_losses(binary_logits, binary_targets)
@@ -331,6 +394,8 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
             label_positions = inputs.pop("label_positions", None)
             binary_targets = inputs.pop("binary_targets", None)
             prompt_text = inputs.pop("prompt_text", inputs.pop("full_text", None))
+
+            self._validate_multi_label_batch(label_positions, binary_targets)
 
             if not self.finetuning_args.eval_with_generate and not self.finetuning_args.use_teacher_forcing_logits:
                 stripped_inputs = {
@@ -413,8 +478,8 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
                 preds[i] = np.concatenate((preds[i][pad_len[0] :], preds[i][: pad_len[0]]), axis=-1)
 
         decoded_inputs = self.processing_class.batch_decode(dataset["input_ids"], skip_special_tokens=False)
-        decoded_preds = self.processing_class.batch_decode(preds, skip_special_tokens=skip_special_tokens)
-        decoded_labels = self.processing_class.batch_decode(labels, skip_special_tokens=skip_special_tokens)
+        decoded_preds = self._batch_decode(preds, skip_special_tokens=skip_special_tokens)
+        decoded_labels = self._batch_decode(labels, skip_special_tokens=skip_special_tokens)
 
         with open(output_prediction_file, "w", encoding="utf-8") as f:
             for text, pred, label in zip(decoded_inputs, decoded_preds, decoded_labels):
