@@ -559,13 +559,11 @@ class FinetuningArguments(
             )
         },
     )
-    statistics_results: bool = field(
+    debug_multilabel_alignment: bool = field(
         default=False,
         metadata={
             "help": (
-                "When using multi-label logits with generation-based prediction, compute aggregated statistics "
-                "(Hamming Loss, Subset Accuracy, Precision/Recall/F1, Hierarchical F1, Hierarchical Violation Rate) "
-                "from generated_predictions.jsonl. Ignored for non-multi-label tasks."
+                "Log a sample of label positions and surrounding tokens for multi-label tasks to verify <yes>/<no> alignment."
             )
         },
     )
