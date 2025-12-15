@@ -15,6 +15,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
+import re
+from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 import numpy as np
@@ -38,6 +41,111 @@ if TYPE_CHECKING:
 
 
 logger = get_logger(__name__)
+
+
+def _load_multi_label_assets() -> tuple[list[str], list[tuple[int, int]]]:
+    assets_dir = Path(__file__).resolve().parents[4] / "assets"
+    with open(assets_dir / "labels_file.json", "r", encoding="utf-8") as f:
+        label_mapping = json.load(f)
+    label_list = [None] * len(label_mapping)
+    for name, idx in label_mapping.items():
+        label_list[idx] = name
+
+    with open(assets_dir / "parent_child_pairs.json", "r", encoding="utf-8") as f:
+        pairs = json.load(f)
+    parent_child_pairs = [(int(parent), int(child)) for parent, child in pairs]
+    return label_list, parent_child_pairs
+
+
+def _parse_multi_label_text(text: str, num_labels: int) -> np.ndarray:
+    matches = re.findall(r"<yes>|<no>", text)
+    vector = np.zeros(num_labels, dtype=np.float32)
+    for idx, tag in enumerate(matches[:num_labels]):
+        vector[idx] = 1.0 if tag == "<yes>" else 0.0
+    return vector
+
+
+def _expand_with_ancestors(indices: set[int], parent_child_pairs: list[tuple[int, int]]) -> set[int]:
+    parent_map: dict[int, list[int]] = {}
+    for parent, child in parent_child_pairs:
+        parent_map.setdefault(child, []).append(parent)
+
+    closure = set(indices)
+    stack = list(indices)
+    while stack:
+        node = stack.pop()
+        for parent in parent_map.get(node, []):
+            if parent not in closure:
+                closure.add(parent)
+                stack.append(parent)
+    return closure
+
+
+def _evaluate_generated_multi_label(prediction_file: Path, label_list: list[str], parent_child_pairs: list[tuple[int, int]]) -> dict[str, float]:
+    predictions: list[np.ndarray] = []
+    references: list[np.ndarray] = []
+    num_labels = len(label_list)
+
+    if not prediction_file.exists():
+        logger.warning_rank0_once(f"Prediction file not found at {prediction_file}, skipping statistics results.")
+        return {}
+
+    with open(prediction_file, "r", encoding="utf-8") as f:
+        for line in f:
+            record = json.loads(line)
+            predictions.append(_parse_multi_label_text(record.get("predict", ""), num_labels))
+            references.append(_parse_multi_label_text(record.get("label", ""), num_labels))
+
+    if len(predictions) == 0:
+        return {}
+
+    preds = np.stack(predictions)
+    labels = np.stack(references)
+    eps = 1e-8
+
+    hamming_loss = float(np.mean(preds != labels))
+    subset_accuracy = float(np.mean(np.all(preds == labels, axis=1)))
+
+    tp = float(np.sum(preds * labels))
+    fp = float(np.sum(preds * (1 - labels)))
+    fn = float(np.sum((1 - preds) * labels))
+    precision = tp / (tp + fp + eps)
+    recall = tp / (tp + fn + eps)
+    f1 = 0.0 if precision + recall == 0 else 2 * precision * recall / (precision + recall)
+
+    hier_tp = 0.0
+    hier_fp = 0.0
+    hier_fn = 0.0
+    violations = 0.0
+    total_pairs = len(parent_child_pairs) * preds.shape[0]
+    for pred_vec, label_vec in zip(preds, labels):
+        pred_set = {i for i, v in enumerate(pred_vec) if v == 1}
+        label_set = {i for i, v in enumerate(label_vec) if v == 1}
+        pred_aug = _expand_with_ancestors(pred_set, parent_child_pairs)
+        label_aug = _expand_with_ancestors(label_set, parent_child_pairs)
+
+        hier_tp += len(pred_aug & label_aug)
+        hier_fp += len(pred_aug - label_aug)
+        hier_fn += len(label_aug - pred_aug)
+
+        for parent, child in parent_child_pairs:
+            if pred_vec[child] == 1 and pred_vec[parent] == 0:
+                violations += 1
+
+    hier_precision = hier_tp / (hier_tp + hier_fp + eps)
+    hier_recall = hier_tp / (hier_tp + hier_fn + eps)
+    hier_f1 = 0.0 if hier_precision + hier_recall == 0 else 2 * hier_precision * hier_recall / (hier_precision + hier_recall)
+    violation_rate = violations / (total_pairs + eps)
+
+    return {
+        "hamming_loss": hamming_loss,
+        "subset_accuracy": subset_accuracy,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "hierarchical_f1": hier_f1,
+        "hierarchical_violation_rate": violation_rate,
+    }
 
 
 def run_sft(
@@ -160,6 +268,20 @@ def run_sft(
         trainer.log_metrics("predict", predict_results.metrics)
         trainer.save_metrics("predict", predict_results.metrics)
         trainer.save_predictions(dataset_module["eval_dataset"], predict_results, generating_args.skip_special_tokens)
+
+        if (
+            getattr(data_args, "task_type", None) == "multi_label_sft_logits"
+            and training_args.predict_with_generate
+            and finetuning_args.statistics_results
+        ):
+            label_list, parent_child_pairs = _load_multi_label_assets()
+            prediction_file = Path(training_args.output_dir) / "generated_predictions.jsonl"
+            stats = _evaluate_generated_multi_label(prediction_file, label_list, parent_child_pairs)
+            if stats:
+                stats_file = Path(training_args.output_dir) / "generated_statistics.json"
+                with open(stats_file, "w", encoding="utf-8") as f:
+                    json.dump(stats, f, ensure_ascii=False, indent=2)
+                logger.info_rank0(f"Saved multi-label generation statistics to {stats_file}")
 
     # Create model card
     create_modelcard_and_push(trainer, model_args, data_args, training_args, finetuning_args)
