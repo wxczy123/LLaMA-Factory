@@ -17,11 +17,15 @@
 
 import json
 import os
+import re
+from contextlib import ExitStack
 from types import MethodType
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional, Union
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from transformers import Seq2SeqTrainer
 from typing_extensions import override
 
@@ -38,7 +42,7 @@ if TYPE_CHECKING:
     from transformers import PreTrainedTokenizer, ProcessorMixin
     from transformers.trainer import PredictionOutput
 
-    from ...hparams import FinetuningArguments, ModelArguments
+    from ...hparams import DataArguments, FinetuningArguments, ModelArguments
 
 
 logger = logging.get_logger(__name__)
@@ -52,6 +56,7 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
         finetuning_args: "FinetuningArguments",
         processor: Optional["ProcessorMixin"],
         model_args: Optional["ModelArguments"] = None,
+        data_args: Optional["DataArguments"] = None,
         gen_kwargs: Optional[dict[str, Any]] = None,
         **kwargs,
     ) -> None:
@@ -92,6 +97,214 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
         if model_args is not None and model_args.fp8 and hasattr(self, "accelerator"):
             verify_fp8_status(self.accelerator, model_args)
 
+        self.data_args = data_args
+        self._is_multi_label_task = getattr(data_args, "task_type", None) == "multi_label_sft_logits"
+        self._label_list: Optional[list[str]] = None
+        self._parent_child_pairs: Optional[list[tuple[int, int]]] = None
+        self._pos_weight: Optional[torch.Tensor] = None
+        self._num_labels: Optional[int] = None
+        self._alignment_debug_done: bool = False
+        if self._is_multi_label_task:
+            self._init_multi_label_resources()
+
+    def _init_multi_label_resources(self) -> None:
+        assets_dir = Path(__file__).resolve().parents[5] / "assets"
+        labels_path = assets_dir / "labels_file.json"
+        parent_child_path = assets_dir / "parent_child_pairs.json"
+
+        with open(labels_path, "r", encoding="utf-8") as f:
+            label_mapping = json.load(f)
+        self._label_list = [None] * len(label_mapping)
+        for name, idx in label_mapping.items():
+            self._label_list[idx] = name
+        self._num_labels = len(self._label_list)
+
+        with open(parent_child_path, "r", encoding="utf-8") as f:
+            pairs = json.load(f)
+        self._parent_child_pairs = [(int(parent), int(child)) for parent, child in pairs]
+
+        self.yes_id = self.processing_class.convert_tokens_to_ids("<yes>")
+        self.no_id = self.processing_class.convert_tokens_to_ids("<no>")
+        if self.yes_id == self.processing_class.unk_token_id or self.no_id == self.processing_class.unk_token_id:
+            raise ValueError("<yes>/<no> tokens must be added to the tokenizer before training.")
+
+        self._maybe_init_pos_weight()
+
+    def _maybe_init_pos_weight(self) -> None:
+        if not self.finetuning_args.use_pos_weight:
+            self._pos_weight = None
+            return
+
+        if self.finetuning_args.pos_weight_file is not None:
+            with open(self.finetuning_args.pos_weight_file, "r", encoding="utf-8") as f:
+                weights = json.load(f)
+            self._pos_weight = torch.tensor(weights, dtype=torch.float32)
+            if self._pos_weight.numel() != self._num_labels:
+                raise ValueError(
+                    f"Expected pos_weight length {self._num_labels}, got {self._pos_weight.numel()}."
+                )
+            return
+
+        if getattr(self.data_args, "streaming", False) or self.train_dataset is None:
+            self._pos_weight = None
+            return
+
+        pos_counts = np.zeros(self._num_labels, dtype=np.float64)
+        neg_counts = np.zeros(self._num_labels, dtype=np.float64)
+        for example in self.train_dataset:
+            targets = example.get("binary_targets")
+            if targets is None:
+                continue
+            arr = np.array(targets, dtype=np.float64)
+            pos_counts += arr
+            neg_counts += 1.0 - arr
+
+        raw = neg_counts / (pos_counts + 1e-8)
+        raw = np.clip(raw, 0.0, self.finetuning_args.pos_weight_max)
+        self._pos_weight = torch.tensor(raw, dtype=torch.float32)
+
+    def _classification_enabled(self) -> bool:
+        return bool(
+            self.finetuning_args.use_bce_loss
+            or self.finetuning_args.use_dice_loss
+            or self.finetuning_args.use_hier_loss
+        )
+
+    def _extract_binary_logits(self, logits: torch.Tensor, label_positions: torch.Tensor) -> torch.Tensor:
+        logits_label_tokens = logits.gather(
+            dim=1, index=label_positions.unsqueeze(-1).expand(-1, -1, logits.size(-1))
+        )
+        logits_yes = logits_label_tokens[..., self.yes_id]
+        logits_no = logits_label_tokens[..., self.no_id]
+        return logits_yes - logits_no
+
+    def _compute_classification_losses(
+        self, binary_logits: torch.Tensor, binary_targets: torch.Tensor
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        loss_cls = torch.zeros((), device=binary_logits.device, dtype=binary_logits.dtype)
+        losses: dict[str, torch.Tensor] = {}
+        probs = torch.sigmoid(binary_logits)
+
+        if self.finetuning_args.use_bce_loss:
+            pos_weight = self._pos_weight.to(binary_logits.device) if self._pos_weight is not None else None
+            if pos_weight is not None:
+                pos_weight = pos_weight.to(dtype=binary_logits.dtype)
+            loss_bce = F.binary_cross_entropy_with_logits(binary_logits, binary_targets, pos_weight=pos_weight)
+            losses["loss_bce"] = loss_bce
+            loss_cls = loss_cls + self.finetuning_args.lambda_bce * loss_bce
+
+        if self.finetuning_args.use_dice_loss:
+            smooth = 1e-6
+            intersection = (probs * binary_targets).sum(dim=-1)
+            union = probs.sum(dim=-1) + binary_targets.sum(dim=-1)
+            dice_score = (2 * intersection + smooth) / (union + smooth)
+            loss_dice = 1.0 - dice_score.mean()
+            losses["loss_dice"] = loss_dice
+            loss_cls = loss_cls + self.finetuning_args.lambda_dice * loss_dice
+
+        if self.finetuning_args.use_hier_loss and self._parent_child_pairs is not None:
+            violations = []
+            for parent_idx, child_idx in self._parent_child_pairs:
+                p_parent = probs[:, parent_idx]
+                p_child = probs[:, child_idx]
+                violations.append(F.relu(p_child - p_parent))
+            if violations:
+                loss_hier = torch.stack(violations, dim=0).mean()
+                losses["loss_hier"] = loss_hier
+                loss_cls = loss_cls + self.finetuning_args.lambda_hier * loss_hier
+
+        losses["loss_cls"] = loss_cls
+        return loss_cls, losses
+
+    def _maybe_debug_label_alignment(self, inputs: dict[str, torch.Tensor]) -> None:
+        if not self.finetuning_args.debug_multilabel_alignment or self._alignment_debug_done:
+            return
+
+        input_ids = inputs.get("input_ids")
+        label_positions = inputs.get("label_positions")
+        if input_ids is None or label_positions is None:
+            return
+
+        first_ids = input_ids[0].detach().cpu()
+        first_positions = label_positions[0].detach().cpu()
+        tokens = first_ids.tolist()
+        positions = first_positions.tolist()
+
+        if len(positions) != self._num_labels:
+            logger.warning_rank0(
+                f"[multi_label] alignment check: expected {self._num_labels} label positions, got {len(positions)}."
+            )
+
+        window_info = []
+        bad_tokens = []
+        for pos in positions[: min(10, len(positions))]:
+            if pos < 0 or pos >= len(tokens):
+                bad_tokens.append({"pos": pos, "token_id": None})
+                continue
+            tok_id = tokens[pos]
+            if tok_id not in (self.yes_id, self.no_id):
+                bad_tokens.append({"pos": pos, "token_id": tok_id})
+            start = max(0, pos - 2)
+            end = min(len(tokens), pos + 3)
+            window_info.append({"pos": pos, "tokens": tokens[start:end]})
+
+        if bad_tokens:
+            logger.warning_rank0(
+                f"[multi_label] alignment check: positions not pointing to <yes>/<no>: {bad_tokens}"
+            )
+        logger.info_rank0(f"[multi_label] alignment sample windows: {window_info}")
+        self._alignment_debug_done = True
+
+    def _log_multi_label_losses(self, logs: dict[str, torch.Tensor]) -> None:
+        safe_logs = {}
+        for key, value in logs.items():
+            if value is None:
+                continue
+            if isinstance(value, torch.Tensor):
+                value = value.detach().to(torch.float32).item()
+            safe_logs[key] = value
+        if safe_logs:
+            self.log(safe_logs)
+
+    def _generate_multi_label(self, prompts: list[str], model: "torch.nn.Module") -> list[str]:
+        if len(prompts) == 0:
+            return []
+
+        # Decoder-only models require left padding for generation. Temporarily switch the tokenizer
+        # padding side to avoid right-padding warnings and potential generation artifacts.
+        orig_padding = getattr(self.processing_class, "padding_side", None)
+        try:
+            if orig_padding != "left":
+                self.processing_class.padding_side = "left"
+
+            inputs = self.processing_class(
+                prompts, return_tensors="pt", padding=True, truncation=True, add_special_tokens=False
+            ).to(model.device)
+        finally:
+            if orig_padding is not None:
+                self.processing_class.padding_side = orig_padding
+
+        gen_kwargs = getattr(self, "_gen_kwargs", {})
+        with torch.no_grad():
+            with ExitStack() as stack:
+                stack.enter_context(self.compute_loss_context_manager())
+                if hasattr(self, "accelerator"):
+                    stack.enter_context(self.accelerator.autocast())
+                outputs = model.generate(**inputs, **gen_kwargs)
+        return self.processing_class.batch_decode(outputs, skip_special_tokens=True)
+
+    def _parse_generated_predictions(self, texts: list[str]) -> torch.Tensor:
+        preds = []
+        for text in texts:
+            matches = re.findall(r"<yes>|<no>", text)
+            vector = np.zeros(self._num_labels, dtype=np.float32)
+            for idx, tag in enumerate(matches[: self._num_labels]):
+                vector[idx] = 1.0 if tag == "<yes>" else 0.0
+            preds.append(vector)
+
+        return torch.tensor(np.array(preds), dtype=torch.float32)
+
+
     @override
     def create_optimizer(self) -> "torch.optim.Optimizer":
         if self.optimizer is None:
@@ -114,6 +327,35 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
 
     @override
     def compute_loss(self, model, inputs, *args, **kwargs):
+        if self._is_multi_label_task:
+            return_outputs = kwargs.pop("return_outputs", False)
+            model_inputs = {
+                k: v
+                for k, v in inputs.items()
+                if k not in {"label_positions", "binary_targets", "full_text", "prompt_text"}
+            }
+            self._maybe_debug_label_alignment(inputs)
+            outputs = model(**model_inputs)
+            sft_loss = outputs.loss
+            logs: dict[str, torch.Tensor] = {}
+            if sft_loss is not None:
+                logs["loss_sft"] = sft_loss
+
+            if self._classification_enabled() and "label_positions" in inputs and "binary_targets" in inputs:
+                binary_logits = self._extract_binary_logits(outputs.logits, inputs["label_positions"])
+                binary_targets = inputs["binary_targets"].to(dtype=binary_logits.dtype)
+                loss_cls, loss_parts = self._compute_classification_losses(binary_logits, binary_targets)
+                logs.update(loss_parts)
+                loss = self.finetuning_args.lambda_sft * sft_loss + loss_cls if sft_loss is not None else loss_cls
+            else:
+                loss = sft_loss
+
+            if loss is not None:
+                logs["loss"] = loss
+            self._log_multi_label_losses(logs)
+
+            return (loss, outputs) if return_outputs else loss
+
         return super().compute_loss(model, inputs, *args, **kwargs)
 
     @override
@@ -125,6 +367,57 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
         ignore_keys: Optional[list[str]] = None,
         **gen_kwargs,
     ) -> tuple[Optional[float], Optional["torch.Tensor"], Optional["torch.Tensor"]]:
+        if self._is_multi_label_task:
+            inputs = self._prepare_inputs(inputs)
+            label_positions = inputs.pop("label_positions", None)
+            binary_targets = inputs.pop("binary_targets", None)
+            prompt_text = inputs.pop("prompt_text", inputs.pop("full_text", None))
+
+            run_generate = (
+                (self.args.predict_with_generate or self.finetuning_args.eval_with_generate)
+                and not self.finetuning_args.use_teacher_forcing_logits
+            )
+
+            if not run_generate and not self.finetuning_args.use_teacher_forcing_logits:
+                model_inputs = {
+                    k: v for k, v in inputs.items() if k not in {"full_text", "prompt_text", "label_positions"}
+                }
+                with torch.no_grad():
+                    with self.compute_loss_context_manager():
+                        outputs = model(**model_inputs)
+                loss = outputs.loss
+                if prediction_loss_only:
+                    return loss, None, inputs.get("labels")
+                return loss, None, inputs.get("labels")
+
+            if self.finetuning_args.use_teacher_forcing_logits:
+                with torch.no_grad():
+                    with self.compute_loss_context_manager():
+                        outputs = model(**inputs)
+                loss = outputs.loss
+                binary_logits = self._extract_binary_logits(outputs.logits, label_positions)
+                if self._classification_enabled() and binary_targets is not None:
+                    binary_targets_cast = binary_targets.to(dtype=binary_logits.dtype)
+                    loss_cls, _ = self._compute_classification_losses(binary_logits, binary_targets_cast)
+                    loss = self.finetuning_args.lambda_sft * loss + loss_cls if loss is not None else loss_cls
+
+                binary_logits_detached = binary_logits.detach().clone()
+                probs = torch.sigmoid(binary_logits_detached)
+                preds = (probs >= 0.5).to(binary_logits_detached.dtype)
+                label_out = binary_targets.detach().clone() if isinstance(binary_targets, torch.Tensor) else binary_targets
+                if prediction_loss_only:
+                    return loss, None, None
+                return loss, preds, label_out
+
+            prompts = prompt_text if isinstance(prompt_text, list) else []
+            generated_texts = self._generate_multi_label(prompts, model)
+            preds = self._parse_generated_predictions(generated_texts)
+            if prediction_loss_only:
+                return None, None, None
+            label_out = binary_targets.detach().clone() if isinstance(binary_targets, torch.Tensor) else binary_targets
+            return None, preds, label_out
+
+        # default behavior
         r"""Remove the prompt part in the generated tokens.
 
         Subclass and override to inject custom behavior.
@@ -155,6 +448,26 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
 
         output_prediction_file = os.path.join(self.args.output_dir, "generated_predictions.jsonl")
         logger.info_rank0(f"Saving prediction results to {output_prediction_file}")
+
+        if self._is_multi_label_task:
+            preds_array = np.array(predict_results.predictions)
+            labels_array = np.array(predict_results.label_ids) if predict_results.label_ids is not None else None
+
+            with open(output_prediction_file, "w", encoding="utf-8") as f:
+                for idx, pred_vec in enumerate(preds_array):
+                    entry: dict[str, Any] = {"predict_vector": pred_vec.tolist()}
+                    if labels_array is not None:
+                        entry["label_vector"] = labels_array[idx].tolist()
+                    if self._label_list is not None:
+                        label_dict = {
+                            name: ("yes" if pred_vec[j] >= 0.5 else "no") for j, name in enumerate(self._label_list)
+                        }
+                        entry["predict_dict"] = label_dict
+                    prompt = dataset[idx].get("prompt_text") or dataset[idx].get("full_text")
+                    if prompt is not None:
+                        entry["prompt"] = prompt
+                    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            return
 
         labels = np.where(
             predict_results.label_ids != IGNORE_INDEX, predict_results.label_ids, self.processing_class.pad_token_id
