@@ -374,7 +374,7 @@ class MultiLabelSFTTrainer(Trainer):
         loss_cls = binary_logits.new_tensor(0.0)
 
         if self.use_bce:
-            pw = self.pos_weight.to(binary_logits.device) if self.pos_weight is not None else None
+            pw = self.pos_weight.to(binary_logits.device, dtype=binary_logits.dtype) if self.pos_weight is not None else None
             loss_bce = bce_with_logits_loss(binary_logits, binary_targets, pw)
             loss_cls = loss_cls + self.lambda_bce * loss_bce
         if self.use_dice:
@@ -409,8 +409,8 @@ class MultiLabelSFTTrainer(Trainer):
         loss_hier = loss_sft.new_tensor(0.0)
 
         if self.use_bce or self.use_dice or self.use_hier:
-            binary_logits = self._extract_binary_logits_from_full_logits(outputs.logits, label_positions).float()
-            binary_targets_t = binary_targets.to(binary_logits.device).float()
+            binary_logits = self._extract_binary_logits_from_full_logits(outputs.logits, label_positions)
+            binary_targets_t = binary_targets.to(device=binary_logits.device, dtype=binary_logits.dtype)
             cls = self._compute_cls_losses(binary_logits, binary_targets_t)
             loss_bce, loss_dice, loss_hier, loss_cls = cls["loss_bce"], cls["loss_dice"], cls["loss_hier"], cls["loss_cls"]
 
@@ -866,6 +866,10 @@ def parse_args():
 
     # precision
     p.add_argument("--bf16", action="store_true", help="Use bf16 (else fp32).")
+    p.add_argument("--disable_gradient_checkpointing", action="store_true",
+                   help="Disable gradient checkpointing (enabled by default to save memory).")
+    p.add_argument("--use_kv_cache", action="store_true",
+                   help="Enable KV cache during training/eval (disabled by default to save memory).")
 
     # LoRA
     p.add_argument("--use_lora", action="store_true", help="Enable LoRA.")
@@ -1007,6 +1011,22 @@ def main():
         device_map="auto",
         trust_remote_code=True,
     )
+
+    if not args.use_kv_cache:
+        if hasattr(model.config, "use_cache"):
+            model.config.use_cache = False
+        if hasattr(model.config, "text_config") and hasattr(model.config.text_config, "use_cache"):
+            model.config.text_config.use_cache = False
+
+    if not args.disable_gradient_checkpointing:
+        if getattr(model, "supports_gradient_checkpointing", False):
+            model.gradient_checkpointing_enable()
+            if hasattr(model, "enable_input_require_grads"):
+                model.enable_input_require_grads()
+            if hasattr(model.config, "use_cache"):
+                model.config.use_cache = False
+        else:
+            print("[WARN] Model does not support gradient checkpointing; skipping.")
 
     # resize embeddings if new tokens added
     model.resize_token_embeddings(len(tokenizer))
@@ -1166,6 +1186,7 @@ def main():
 
 
         bf16=args.bf16,
+        gradient_checkpointing=not args.disable_gradient_checkpointing,
         fp16=False,
         report_to="none",
         remove_unused_columns=False,
